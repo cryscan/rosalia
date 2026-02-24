@@ -12,7 +12,8 @@ use nonmax::NonMaxUsize;
 ///
 /// # Type Parameters
 /// - `T`: The token type, must be copyable, cloneable, and comparable.
-/// - `S`: The size of the transition map, must be a power of 2.
+/// - `S`: The size of the vocabulary, must be a power of 2.
+#[derive(Debug, Clone)]
 pub struct Sam<T, const S: usize = 16> {
     /// All states in the automaton.
     states: Vec<State<S>>,
@@ -52,11 +53,7 @@ where
 {
     /// Creates a new empty suffix automaton.
     pub fn new() -> Self {
-        Self {
-            states: vec![State::default()],
-            last: 0,
-            sequence: Vec::new(),
-        }
+        Default::default()
     }
 
     /// Creates a new empty suffix automaton with the given capacity.
@@ -109,7 +106,7 @@ where
 
     /// Internal method to extend the automaton with a single token.
     fn push_internal(&mut self, c: T) {
-        let cur = self.states.len();
+        let current = self.states.len();
         self.states.push(State {
             link: None,
             len: self.states[self.last].len + 1,
@@ -122,14 +119,14 @@ where
 
         // add transitions from all suffix states that don't have transition on `c`
         while self.states[p].next[c].is_none() {
-            self.states[p].next[c] = NonMaxUsize::new(cur);
+            self.states[p].next[c] = NonMaxUsize::new(current);
             match self.states[p].link {
                 Some(link) => p = link.into(),
                 None => {
                     // reached the initial state
-                    self.states[cur].link = NonMaxUsize::new(0);
-                    self.states[cur].end = NonMaxUsize::new(cur);
-                    self.last = cur;
+                    self.states[current].link = NonMaxUsize::new(0);
+                    self.states[current].end = NonMaxUsize::new(current);
+                    self.last = current;
                     return;
                 }
             }
@@ -140,7 +137,7 @@ where
 
         if self.states[p].len + 1 == self.states[q].len {
             // simple case: `q` is the right suffix link
-            self.states[cur].link = NonMaxUsize::new(q);
+            self.states[current].link = NonMaxUsize::new(q);
         } else {
             // need to clone state `q`
             let clone = self.states.len();
@@ -149,7 +146,7 @@ where
             self.states.push(state);
 
             // update suffix link of `cur` and `q`
-            self.states[cur].link = NonMaxUsize::new(clone);
+            self.states[current].link = NonMaxUsize::new(clone);
             self.states[q].link = NonMaxUsize::new(clone);
 
             // redirect transitions from `p` and its suffixes
@@ -163,13 +160,13 @@ where
         }
 
         // update end position of all suffixes on the chain
-        let mut p = cur;
+        let mut p = current;
         while let Some(link) = self.states[p].link {
-            self.states[p].end = NonMaxUsize::new(cur);
+            self.states[p].end = NonMaxUsize::new(current);
             p = link.into();
         }
 
-        self.last = cur;
+        self.last = current;
     }
 
     /// Returns true if the sequence contains the given pattern.
@@ -177,11 +174,11 @@ where
         if pattern.is_empty() {
             return true;
         }
-        let mut current = 0;
+        let mut p = 0;
         for &token in pattern {
             let token = token.into();
-            match self.states[current].next[token] {
-                Some(next) => current = next.into(),
+            match self.states[p].next[token] {
+                Some(next) => p = next.into(),
                 None => return false,
             }
         }
@@ -193,104 +190,245 @@ where
         if pattern.is_empty() {
             return Some(0);
         }
-        let mut current = 0;
+        let mut p = 0;
         for &token in pattern {
             let token = token.into();
-            match self.states[current].next[token] {
-                Some(next) => current = next.into(),
+            match self.states[p].next[token] {
+                Some(next) => p = next.into(),
                 None => return None,
             }
         }
-        self.states[current].end.map(Into::into)
+        self.states[p].end.map(Into::into)
+    }
+
+    /// Given a cached start `state`, match a new input `token`.
+    ///
+    /// # Returns
+    ///
+    /// `(Some(end), state)` if the match is successful, `(None, 0)` otherwise.
+    pub fn match_end_incremental(&self, token: T, state: usize) -> (Option<usize>, usize) {
+        let token = token.into();
+
+        let mut p = state;
+        while self.states[p].next[token].is_none()
+            && let Some(link) = self.states[p].link
+        {
+            p = link.into();
+        }
+
+        match self.states[p].next[token] {
+            Some(next) => {
+                // found a transition to the next state
+                p = next.into();
+                let end = self.states[p].end.map(Into::into);
+                (end, p)
+            }
+            None => (None, 0),
+        }
     }
 }
 
-impl<T> Default for Sam<T>
-where
-    T: Copy + Clone + PartialEq + Eq + Into<usize>,
-{
+impl<T, const S: usize> Default for Sam<T, S> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            states: vec![State::default()],
+            last: 0,
+            sequence: Vec::new(),
+        }
     }
+}
+
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub struct Rosa<T, V, const S: usize> {
+    /// Query tokens.
+    qs: Vec<T>,
+    /// Key tokens form a SAM.
+    ks: Sam<T, S>,
+    /// Value tokens.
+    vs: Vec<V>,
+    /// Current state of longest matched `qs` suffix in `ks`.
+    current: usize,
+    /// Current len of the match.
+    len: usize,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[allow(unused)]
+    #[repr(u8)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, variant_count::VariantCount)]
+    enum Token {
+        A,
+        B,
+        C,
+        D,
+        E,
+        F,
+        G,
+        H,
+    }
+
+    impl From<Token> for usize {
+        fn from(token: Token) -> usize {
+            token as usize
+        }
+    }
+
     #[test]
     fn test_basic_construction() {
-        let sam = Sam::<u8, 256>::new();
+        let sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
         assert!(sam.is_empty());
         assert_eq!(sam.len(), 0);
     }
 
     #[test]
     fn test_push_and_extend() {
-        let mut sam = Sam::<u8, 256>::new();
-        sam.push(b'a');
+        use Token::*;
+
+        let mut sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
+        sam.push(A);
         assert_eq!(sam.len(), 1);
 
-        sam.extend(&[b'b', b'c', b'd']);
+        sam.extend(&[B, C, D]);
         assert_eq!(sam.len(), 4);
-        assert_eq!(sam.sequence(), &[b'a', b'b', b'c', b'd']);
+        assert_eq!(sam.sequence(), &[A, B, C, D]);
     }
 
     #[test]
     fn test_contains() {
-        let mut sam = Sam::<u8, 256>::new();
-        sam.extend(&[b'a', b'b', b'c', b'a', b'b', b'd']);
+        use Token::*;
+
+        let mut sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
+        sam.extend(&[A, B, C, A, B, D]);
 
         // existing substrings
-        assert!(sam.contains(&[b'a', b'b']));
-        assert!(sam.contains(&[b'b', b'c']));
-        assert!(sam.contains(&[b'c', b'a']));
-        assert!(sam.contains(&[b'a', b'b', b'd']));
-        assert!(sam.contains(&[b'a']));
-        assert!(sam.contains(&[b'd']));
+        assert!(sam.contains(&[A, B]));
+        assert!(sam.contains(&[B, C]));
+        assert!(sam.contains(&[C, A]));
+        assert!(sam.contains(&[A, B, D]));
+        assert!(sam.contains(&[A]));
+        assert!(sam.contains(&[D]));
         assert!(sam.contains(&[])); // empty pattern
 
         // non-existing substrings
-        assert!(!sam.contains(&[b'a', b'd']));
-        assert!(!sam.contains(&[b'b', b'a']));
-        assert!(!sam.contains(&[b'c', b'd']));
-        assert!(!sam.contains(&[b'a', b'b', b'c', b'd'])); // Not a continuous substring
-        assert!(!sam.contains(&[b'e']));
+        assert!(!sam.contains(&[A, D]));
+        assert!(!sam.contains(&[B, A]));
+        assert!(!sam.contains(&[C, D]));
+        assert!(!sam.contains(&[A, B, C, D])); // Not a continuous substring
+        assert!(!sam.contains(&[E]));
     }
 
     #[test]
     fn test_match_end() {
-        let mut sam = Sam::<u8, 256>::new();
-        sam.extend(&[b'a', b'b', b'c', b'a', b'b', b'd']);
+        use Token::*;
+
+        let mut sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
+        sam.extend(&[A, B, C, A, B, D]);
 
         // empty pattern should return Some(0)
         assert_eq!(sam.match_end(&[]), Some(0));
 
         // test patterns that exist and verify their end positions
-        // pattern "ab" appears at positions 1 and 4
+        // pattern "AB" appears at positions 1 and 4
         // the last occurrence ends at position 4 (0-indexed)
-        assert_eq!(sam.match_end(&[b'a', b'b']), Some(5));
+        assert_eq!(sam.match_end(&[A, B]), Some(5));
 
-        // pattern "bc" appears at position 2
-        assert_eq!(sam.match_end(&[b'b', b'c']), Some(3));
+        // pattern "BC" appears at position 2
+        assert_eq!(sam.match_end(&[B, C]), Some(3));
 
-        // pattern "ca" appears at position 3
-        assert_eq!(sam.match_end(&[b'c', b'a']), Some(4));
+        // pattern "CA" appears at position 3
+        assert_eq!(sam.match_end(&[C, A]), Some(4));
 
-        // pattern "abd" appears at position 5
-        assert_eq!(sam.match_end(&[b'a', b'b', b'd']), Some(6));
+        // pattern "ABD" appears at position 5
+        assert_eq!(sam.match_end(&[A, B, D]), Some(6));
 
         // single token patterns
-        assert_eq!(sam.match_end(&[b'a']), Some(4));
-        assert_eq!(sam.match_end(&[b'b']), Some(5));
-        assert_eq!(sam.match_end(&[b'c']), Some(3));
-        assert_eq!(sam.match_end(&[b'd']), Some(6));
+        assert_eq!(sam.match_end(&[A]), Some(4));
+        assert_eq!(sam.match_end(&[B]), Some(5));
+        assert_eq!(sam.match_end(&[C]), Some(3));
+        assert_eq!(sam.match_end(&[D]), Some(6));
 
         // non-existing patterns should return None
-        assert_eq!(sam.match_end(&[b'a', b'd']), None);
-        assert_eq!(sam.match_end(&[b'b', b'a']), None);
-        assert_eq!(sam.match_end(&[b'c', b'd']), None);
-        assert_eq!(sam.match_end(&[b'a', b'b', b'c', b'd']), None);
-        assert_eq!(sam.match_end(&[b'e']), None);
+        assert_eq!(sam.match_end(&[A, D]), None);
+        assert_eq!(sam.match_end(&[B, A]), None);
+        assert_eq!(sam.match_end(&[C, D]), None);
+        assert_eq!(sam.match_end(&[A, B, C, D]), None);
+        assert_eq!(sam.match_end(&[E]), None);
+    }
+
+    #[test]
+    fn test_match_end_incremental() {
+        use Token::*;
+
+        let mut sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
+
+        // start from initial state (0), match 'A'
+        sam.push(A);
+        let (end, state) = sam.match_end_incremental(A, 0);
+        assert_eq!(end, Some(1));
+        log::info!("state: {state}");
+
+        // continue matching 'B'
+        sam.push(B);
+        let (end, state) = sam.match_end_incremental(B, state);
+        assert_eq!(end, Some(2));
+        log::info!("state: {state}");
+
+        // matches "ABA"
+        sam.extend(&[C, A, B, A]);
+        let (end, state) = sam.match_end_incremental(A, state);
+        assert_eq!(end, Some(6));
+        log::info!("state: {state}");
+
+        // non-existing pattern should return None
+        sam.push(E);
+        let (end, state) = sam.match_end_incremental(D, state);
+        assert_eq!(end, None);
+        log::info!("state: {state}");
+
+        // continue matching 'E'
+        sam.extend(&[F, G, H]);
+        let (end, state) = sam.match_end_incremental(E, state);
+        assert_eq!(end, Some(7));
+        log::info!("state: {state}");
+
+        // continue matching "EF"
+        let (end, state) = sam.match_end_incremental(F, state);
+        assert_eq!(end, Some(8));
+        log::info!("state: {state}");
+
+        // continue matching "EFG"
+        let (end, state) = sam.match_end_incremental(G, state);
+        assert_eq!(end, Some(9));
+        log::info!("state: {state}");
+
+        // continue matching "EFGH"
+        let (end, state) = sam.match_end_incremental(H, state);
+        assert_eq!(end, Some(10));
+        log::info!("state: {state}");
+
+        // key is "ABCABAEFGH", query is "ABADEFGHA", matches 'A'
+        let (end, state) = sam.match_end_incremental(A, state);
+        assert_eq!(end, Some(6));
+        log::info!("state: {state}");
+
+        // matches "AB"
+        let (end, state) = sam.match_end_incremental(B, state);
+        assert_eq!(end, Some(5));
+        log::info!("state: {state}");
+
+        // matches "ABC"
+        let (end, state) = sam.match_end_incremental(C, state);
+        assert_eq!(end, Some(3));
+        log::info!("state: {state}");
+
+        // key is "ABCABAEFGHABCD", query is "ABADEFGHABCD", matches "EFGHABCD"
+        sam.extend(&[A, B, C, D]);
+        let (end, state) = sam.match_end_incremental(D, state);
+        assert_eq!(end, Some(14));
+        log::info!("state: {state}");
     }
 }
