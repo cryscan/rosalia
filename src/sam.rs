@@ -163,6 +163,21 @@ where
 
         self.last = cur;
     }
+
+    /// Returns true if the sequence contains the given pattern.
+    pub fn contains(&self, pattern: &[T]) -> bool {
+        if pattern.is_empty() {
+            return true;
+        }
+        let mut current = 0;
+        for &token in pattern {
+            match self.states[current].next.get(&token) {
+                Some(&next) => current = next,
+                None => return false,
+            }
+        }
+        true
+    }
 }
 
 impl<T> Default for Sam<T>
@@ -194,5 +209,27 @@ mod tests {
         sam.extend(&['b', 'c', 'd']);
         assert_eq!(sam.len(), 4);
         assert_eq!(sam.sequence(), &['a', 'b', 'c', 'd']);
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut sam: Sam<char> = Sam::new();
+        sam.extend(&['a', 'b', 'c', 'a', 'b', 'd']);
+
+        // existing substrings
+        assert!(sam.contains(&['a', 'b']));
+        assert!(sam.contains(&['b', 'c']));
+        assert!(sam.contains(&['c', 'a']));
+        assert!(sam.contains(&['a', 'b', 'd']));
+        assert!(sam.contains(&['a']));
+        assert!(sam.contains(&['d']));
+        assert!(sam.contains(&[])); // empty pattern
+
+        // non-existing substrings
+        assert!(!sam.contains(&['a', 'd']));
+        assert!(!sam.contains(&['b', 'a']));
+        assert!(!sam.contains(&['c', 'd']));
+        assert!(!sam.contains(&['a', 'b', 'c', 'd'])); // Not a continuous substring
+        assert!(!sam.contains(&['e']));
     }
 }
