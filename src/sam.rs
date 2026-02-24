@@ -3,8 +3,6 @@
 //! This module implements a generic suffix automaton that supports incremental
 //! token sequence processing and longest suffix matching queries.
 
-use std::{collections::HashMap, hash::Hash};
-
 use nonmax::NonMaxUsize;
 
 /// Generic Suffix Automaton for ROSA pattern matching.
@@ -14,12 +12,10 @@ use nonmax::NonMaxUsize;
 ///
 /// # Type Parameters
 /// - `T`: The token type, must be copyable, cloneable, and comparable.
-pub struct Sam<T>
-where
-    T: Copy + Clone + PartialEq + Eq + Hash,
-{
+/// - `S`: The size of the transition map, must be a power of 2.
+pub struct Sam<T, const S: usize = 16> {
     /// All states in the automaton.
-    states: Vec<State<T>>,
+    states: Vec<State<S>>,
     /// The last state added.
     last: usize,
     /// The current sequence of tokens.
@@ -28,28 +24,31 @@ where
 
 /// A state in the suffix automaton.
 #[derive(Debug, Clone)]
-struct State<T> {
+struct State<const S: usize> {
     /// Transition map: token → state index.
-    next: HashMap<T, usize>,
+    next: Box<[Option<NonMaxUsize>; S]>,
     /// Suffix link (points to a state that represents a proper suffix).
     link: Option<NonMaxUsize>,
     /// Length of the longest string in this equivalence class.
     len: usize,
+    /// The last position of the state occurrence in the sequence.
+    _end: Option<NonMaxUsize>,
 }
 
-impl<T> Default for State<T> {
+impl<const S: usize> Default for State<S> {
     fn default() -> Self {
         Self {
-            next: HashMap::new(),
+            next: Box::new([None; S]),
             link: None,
             len: 0,
+            _end: None,
         }
     }
 }
 
-impl<T> Sam<T>
+impl<T, const S: usize> Sam<T, S>
 where
-    T: Copy + Clone + PartialEq + Eq + std::hash::Hash,
+    T: Copy + Clone + PartialEq + Eq + Into<usize>,
 {
     /// Creates a new empty suffix automaton.
     pub fn new() -> Self {
@@ -112,17 +111,18 @@ where
     fn push_internal(&mut self, c: T) {
         let cur = self.states.len();
         self.states.push(State {
-            next: HashMap::new(),
             link: None,
             len: self.states[self.last].len + 1,
+            ..Default::default()
         });
 
         // the (potential) first conflict state whose next state contains `c`
         let mut p = self.last;
+        let c = c.into();
 
         // add transitions from all suffix states that don't have transition on `c`
-        while !self.states[p].next.contains_key(&c) {
-            self.states[p].next.insert(c, cur);
+        while self.states[p].next[c].is_none() {
+            self.states[p].next[c] = NonMaxUsize::new(cur);
             match self.states[p].link {
                 Some(link) => p = link.into(),
                 None => {
@@ -135,7 +135,7 @@ where
         }
 
         // the next state that `p` already transitions to on `c`
-        let q = self.states[p].next[&c];
+        let q: usize = self.states[p].next[c].unwrap().into();
 
         if self.states[p].len + 1 == self.states[q].len {
             // simple case: `q` is the right suffix link
@@ -152,8 +152,8 @@ where
             self.states[q].link = NonMaxUsize::new(clone);
 
             // redirect transitions from `p` and its suffixes
-            while self.states[p].next.get(&c) == Some(&q) {
-                self.states[p].next.insert(c, clone);
+            while self.states[p].next[c] == NonMaxUsize::new(q) {
+                self.states[p].next[c] = NonMaxUsize::new(clone);
                 match self.states[p].link {
                     Some(link) => p = link.into(),
                     None => break,
@@ -171,8 +171,9 @@ where
         }
         let mut current = 0;
         for &token in pattern {
-            match self.states[current].next.get(&token) {
-                Some(&next) => current = next,
+            let token = token.into();
+            match self.states[current].next[token] {
+                Some(next) => current = next.into(),
                 None => return false,
             }
         }
@@ -182,7 +183,7 @@ where
 
 impl<T> Default for Sam<T>
 where
-    T: Copy + Clone + PartialEq + Eq + std::hash::Hash,
+    T: Copy + Clone + PartialEq + Eq + Into<usize>,
 {
     fn default() -> Self {
         Self::new()
@@ -195,41 +196,41 @@ mod tests {
 
     #[test]
     fn test_basic_construction() {
-        let sam: Sam<char> = Sam::new();
+        let sam = Sam::<u8, 256>::new();
         assert!(sam.is_empty());
         assert_eq!(sam.len(), 0);
     }
 
     #[test]
     fn test_push_and_extend() {
-        let mut sam: Sam<char> = Sam::new();
-        sam.push('a');
+        let mut sam = Sam::<u8, 256>::new();
+        sam.push(b'a');
         assert_eq!(sam.len(), 1);
 
-        sam.extend(&['b', 'c', 'd']);
+        sam.extend(&[b'b', b'c', b'd']);
         assert_eq!(sam.len(), 4);
-        assert_eq!(sam.sequence(), &['a', 'b', 'c', 'd']);
+        assert_eq!(sam.sequence(), &[b'a', b'b', b'c', b'd']);
     }
 
     #[test]
     fn test_contains() {
-        let mut sam: Sam<char> = Sam::new();
-        sam.extend(&['a', 'b', 'c', 'a', 'b', 'd']);
+        let mut sam = Sam::<u8, 256>::new();
+        sam.extend(&[b'a', b'b', b'c', b'a', b'b', b'd']);
 
         // existing substrings
-        assert!(sam.contains(&['a', 'b']));
-        assert!(sam.contains(&['b', 'c']));
-        assert!(sam.contains(&['c', 'a']));
-        assert!(sam.contains(&['a', 'b', 'd']));
-        assert!(sam.contains(&['a']));
-        assert!(sam.contains(&['d']));
+        assert!(sam.contains(&[b'a', b'b']));
+        assert!(sam.contains(&[b'b', b'c']));
+        assert!(sam.contains(&[b'c', b'a']));
+        assert!(sam.contains(&[b'a', b'b', b'd']));
+        assert!(sam.contains(&[b'a']));
+        assert!(sam.contains(&[b'd']));
         assert!(sam.contains(&[])); // empty pattern
 
         // non-existing substrings
-        assert!(!sam.contains(&['a', 'd']));
-        assert!(!sam.contains(&['b', 'a']));
-        assert!(!sam.contains(&['c', 'd']));
-        assert!(!sam.contains(&['a', 'b', 'c', 'd'])); // Not a continuous substring
-        assert!(!sam.contains(&['e']));
+        assert!(!sam.contains(&[b'a', b'd']));
+        assert!(!sam.contains(&[b'b', b'a']));
+        assert!(!sam.contains(&[b'c', b'd']));
+        assert!(!sam.contains(&[b'a', b'b', b'c', b'd'])); // Not a continuous substring
+        assert!(!sam.contains(&[b'e']));
     }
 }
