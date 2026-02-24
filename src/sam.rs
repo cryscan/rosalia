@@ -32,7 +32,7 @@ struct State<const S: usize> {
     /// Length of the longest string in this equivalence class.
     len: usize,
     /// The last position of the state occurrence in the sequence.
-    _end: Option<NonMaxUsize>,
+    end: Option<NonMaxUsize>,
 }
 
 impl<const S: usize> Default for State<S> {
@@ -41,7 +41,7 @@ impl<const S: usize> Default for State<S> {
             next: Box::new([None; S]),
             link: None,
             len: 0,
-            _end: None,
+            end: None,
         }
     }
 }
@@ -128,6 +128,7 @@ where
                 None => {
                     // reached the initial state
                     self.states[cur].link = NonMaxUsize::new(0);
+                    self.states[cur].end = NonMaxUsize::new(cur);
                     self.last = cur;
                     return;
                 }
@@ -161,6 +162,13 @@ where
             }
         }
 
+        // update end position of all suffixes on the chain
+        let mut p = cur;
+        while let Some(link) = self.states[p].link {
+            self.states[p].end = NonMaxUsize::new(cur);
+            p = link.into();
+        }
+
         self.last = cur;
     }
 
@@ -178,6 +186,22 @@ where
             }
         }
         true
+    }
+
+    /// Returns the end position of the last match.
+    pub fn match_end(&self, pattern: &[T]) -> Option<usize> {
+        if pattern.is_empty() {
+            return Some(0);
+        }
+        let mut current = 0;
+        for &token in pattern {
+            let token = token.into();
+            match self.states[current].next[token] {
+                Some(next) => current = next.into(),
+                None => return None,
+            }
+        }
+        self.states[current].end.map(Into::into)
     }
 }
 
@@ -232,5 +256,41 @@ mod tests {
         assert!(!sam.contains(&[b'c', b'd']));
         assert!(!sam.contains(&[b'a', b'b', b'c', b'd'])); // Not a continuous substring
         assert!(!sam.contains(&[b'e']));
+    }
+
+    #[test]
+    fn test_match_end() {
+        let mut sam = Sam::<u8, 256>::new();
+        sam.extend(&[b'a', b'b', b'c', b'a', b'b', b'd']);
+
+        // empty pattern should return Some(0)
+        assert_eq!(sam.match_end(&[]), Some(0));
+
+        // test patterns that exist and verify their end positions
+        // pattern "ab" appears at positions 1 and 4
+        // the last occurrence ends at position 4 (0-indexed)
+        assert_eq!(sam.match_end(&[b'a', b'b']), Some(5));
+
+        // pattern "bc" appears at position 2
+        assert_eq!(sam.match_end(&[b'b', b'c']), Some(3));
+
+        // pattern "ca" appears at position 3
+        assert_eq!(sam.match_end(&[b'c', b'a']), Some(4));
+
+        // pattern "abd" appears at position 5
+        assert_eq!(sam.match_end(&[b'a', b'b', b'd']), Some(6));
+
+        // single token patterns
+        assert_eq!(sam.match_end(&[b'a']), Some(4));
+        assert_eq!(sam.match_end(&[b'b']), Some(5));
+        assert_eq!(sam.match_end(&[b'c']), Some(3));
+        assert_eq!(sam.match_end(&[b'd']), Some(6));
+
+        // non-existing patterns should return None
+        assert_eq!(sam.match_end(&[b'a', b'd']), None);
+        assert_eq!(sam.match_end(&[b'b', b'a']), None);
+        assert_eq!(sam.match_end(&[b'c', b'd']), None);
+        assert_eq!(sam.match_end(&[b'a', b'b', b'c', b'd']), None);
+        assert_eq!(sam.match_end(&[b'e']), None);
     }
 }
