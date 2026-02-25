@@ -105,7 +105,7 @@ where
     }
 
     /// Internal method to extend the automaton with a single token.
-    fn push_internal(&mut self, c: T) {
+    fn push_internal(&mut self, token: T) {
         let current = self.states.len();
         self.states.push(State {
             link: None,
@@ -113,15 +113,15 @@ where
             ..Default::default()
         });
 
-        // the (potential) first conflict state whose next state contains `c`
+        // the (potential) first conflict state whose next state contains `token`
         let mut p = self.last;
-        let c = c.into();
+        let token = token.into();
 
-        // add transitions from all suffix states that don't have transition on `c`
-        while self.states[p].next[c].is_none() {
-            self.states[p].next[c] = NonMaxUsize::new(current);
-            match self.states[p].link {
-                Some(link) => p = link.into(),
+        // add transitions from all suffix states that don't have transition on `token`
+        while self.states[p].next[token].is_none() {
+            self.states[p].next[token] = NonMaxUsize::new(current);
+            match self.states[p].link.map(Into::into) {
+                Some(link) => p = link,
                 None => {
                     // reached the initial state
                     self.states[current].link = NonMaxUsize::new(0);
@@ -132,8 +132,10 @@ where
             }
         }
 
-        // the next state that `p` already transitions to on `c`
-        let q: usize = self.states[p].next[c].unwrap().into();
+        // the next state that `p` already transitions to on `token`
+        let q: usize = self.states[p].next[token]
+            .expect("`q` must be valid")
+            .into();
 
         if self.states[p].len + 1 == self.states[q].len {
             // simple case: `q` is the right suffix link
@@ -145,15 +147,15 @@ where
             state.len = self.states[p].len + 1;
             self.states.push(state);
 
-            // update suffix link of `cur` and `q`
+            // update suffix link of `current` and `q`
             self.states[current].link = NonMaxUsize::new(clone);
             self.states[q].link = NonMaxUsize::new(clone);
 
             // redirect transitions from `p` and its suffixes
-            while self.states[p].next[c] == NonMaxUsize::new(q) {
-                self.states[p].next[c] = NonMaxUsize::new(clone);
-                match self.states[p].link {
-                    Some(link) => p = link.into(),
+            while self.states[p].next[token] == NonMaxUsize::new(q) {
+                self.states[p].next[token] = NonMaxUsize::new(clone);
+                match self.states[p].link.map(Into::into) {
+                    Some(link) => p = link,
                     None => break,
                 }
             }
@@ -161,9 +163,9 @@ where
 
         // update end position of all suffixes on the chain
         let mut p = current;
-        while let Some(link) = self.states[p].link {
+        while let Some(link) = self.states[p].link.map(Into::into) {
             self.states[p].end = NonMaxUsize::new(current);
-            p = link.into();
+            p = link;
         }
 
         self.last = current;
@@ -177,8 +179,8 @@ where
         let mut p = 0;
         for &token in pattern {
             let token = token.into();
-            match self.states[p].next[token] {
-                Some(next) => p = next.into(),
+            match self.states[p].next[token].map(Into::into) {
+                Some(next) => p = next,
                 None => return false,
             }
         }
@@ -193,8 +195,8 @@ where
         let mut p = 0;
         for &token in pattern {
             let token = token.into();
-            match self.states[p].next[token] {
-                Some(next) => p = next.into(),
+            match self.states[p].next[token].map(Into::into) {
+                Some(next) => p = next,
                 None => return None,
             }
         }
@@ -211,18 +213,13 @@ where
 
         let mut p = state;
         while self.states[p].next[token].is_none()
-            && let Some(link) = self.states[p].link
+            && let Some(link) = self.states[p].link.map(Into::into)
         {
-            p = link.into();
+            p = link;
         }
 
-        match self.states[p].next[token] {
-            Some(next) => {
-                // found a transition to the next state
-                p = next.into();
-                let end = self.states[p].end.map(Into::into);
-                (end, p)
-            }
+        match self.states[p].next[token].map(usize::from) {
+            Some(next) => (self.states[next].end.map(Into::into), next),
             None => (None, 0),
         }
     }
