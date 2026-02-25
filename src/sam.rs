@@ -5,24 +5,6 @@
 
 use nonmax::NonMaxUsize;
 
-/// Generic Suffix Automaton for ROSA pattern matching.
-///
-/// The suffix automaton efficiently processes discrete token sequences and supports
-/// longest suffix matching queries in O(1) average time per operation.
-///
-/// # Type Parameters
-/// - `T`: The token type, must be copyable, cloneable, and comparable.
-/// - `S`: The size of the vocabulary, must be a power of 2.
-#[derive(Debug, Clone)]
-pub struct Sam<T, const S: usize = 16> {
-    /// All states in the automaton.
-    states: Vec<State<S>>,
-    /// The last state added.
-    last: usize,
-    /// The current sequence of tokens.
-    sequence: Vec<T>,
-}
-
 /// A state in the suffix automaton.
 #[derive(Debug, Clone)]
 struct State<const S: usize> {
@@ -43,6 +25,34 @@ impl<const S: usize> Default for State<S> {
             link: None,
             len: 0,
             end: None,
+        }
+    }
+}
+
+/// Generic Suffix Automaton for ROSA pattern matching.
+///
+/// The suffix automaton efficiently processes discrete token sequences and supports
+/// longest suffix matching queries in O(1) average time per operation.
+///
+/// # Type Parameters
+/// - `T`: The token type, must be copyable, cloneable, and comparable.
+/// - `S`: The size of the vocabulary.
+#[derive(Debug, Clone)]
+pub struct Sam<T, const S: usize> {
+    /// All states in the automaton.
+    states: Vec<State<S>>,
+    /// The last state added.
+    last: usize,
+    /// The current sequence of tokens.
+    sequence: Vec<T>,
+}
+
+impl<T, const S: usize> Default for Sam<T, S> {
+    fn default() -> Self {
+        Self {
+            states: vec![State::default()],
+            last: 0,
+            sequence: Vec::new(),
         }
     }
 }
@@ -106,6 +116,7 @@ where
 
     /// Internal method to extend the automaton with a single token.
     fn push_internal(&mut self, token: T) {
+        let end = self.sequence.len();
         let current = self.states.len();
         self.states.push(State {
             link: None,
@@ -113,62 +124,62 @@ where
             ..Default::default()
         });
 
-        // the (potential) first conflict state whose next state contains `token`
-        let mut p = self.last;
-        let token = token.into();
+        'update: {
+            // the (potential) first conflict state whose next state contains `token`
+            let mut p = self.last;
+            let token = token.into();
 
-        // add transitions from all suffix states that don't have transition on `token`
-        while self.states[p].next[token].is_none() {
-            self.states[p].next[token] = NonMaxUsize::new(current);
-            match self.states[p].link.map(Into::into) {
-                Some(link) => p = link,
-                None => {
-                    // reached the initial state
-                    self.states[current].link = NonMaxUsize::new(0);
-                    self.states[current].end = NonMaxUsize::new(current);
-                    self.last = current;
-                    return;
-                }
-            }
-        }
-
-        // the next state that `p` already transitions to on `token`
-        let q: usize = self.states[p].next[token]
-            .expect("`q` must be valid")
-            .into();
-
-        if self.states[p].len + 1 == self.states[q].len {
-            // simple case: `q` is the right suffix link
-            self.states[current].link = NonMaxUsize::new(q);
-        } else {
-            // need to clone state `q`
-            let clone = self.states.len();
-            let mut state = self.states[q].clone();
-            state.len = self.states[p].len + 1;
-            self.states.push(state);
-
-            // update suffix link of `current` and `q`
-            self.states[current].link = NonMaxUsize::new(clone);
-            self.states[q].link = NonMaxUsize::new(clone);
-
-            // redirect transitions from `p` and its suffixes
-            while self.states[p].next[token] == NonMaxUsize::new(q) {
-                self.states[p].next[token] = NonMaxUsize::new(clone);
+            // add transitions from all suffix states that don't have transition on `token`
+            while self.states[p].next[token].is_none() {
+                self.states[p].next[token] = NonMaxUsize::new(current);
                 match self.states[p].link.map(Into::into) {
                     Some(link) => p = link,
-                    None => break,
+                    None => {
+                        // reached the initial state
+                        self.states[current].link = NonMaxUsize::new(0);
+                        break 'update;
+                    }
+                }
+            }
+
+            // the next state that `p` already transitions to on `token`
+            let q: usize = self.states[p].next[token]
+                .expect("`q` must be valid")
+                .into();
+
+            if self.states[p].len + 1 == self.states[q].len {
+                // simple case: `q` is the right suffix link
+                self.states[current].link = NonMaxUsize::new(q);
+            } else {
+                // need to clone state `q`
+                let clone = self.states.len();
+                let mut state = self.states[q].clone();
+                state.len = self.states[p].len + 1;
+                self.states.push(state);
+
+                // update suffix link of `current` and `q`
+                self.states[current].link = NonMaxUsize::new(clone);
+                self.states[q].link = NonMaxUsize::new(clone);
+
+                // redirect transitions from `p` and its suffixes
+                while self.states[p].next[token] == NonMaxUsize::new(q) {
+                    self.states[p].next[token] = NonMaxUsize::new(clone);
+                    match self.states[p].link.map(Into::into) {
+                        Some(link) => p = link,
+                        None => break 'update,
+                    }
                 }
             }
         }
+
+        self.last = current;
 
         // update end position of all suffixes on the chain
         let mut p = current;
         while let Some(link) = self.states[p].link.map(Into::into) {
-            self.states[p].end = NonMaxUsize::new(current);
+            self.states[p].end = NonMaxUsize::new(end);
             p = link;
         }
-
-        self.last = current;
     }
 
     /// Returns true if the sequence contains the given pattern.
@@ -225,29 +236,54 @@ where
     }
 }
 
-impl<T, const S: usize> Default for Sam<T, S> {
-    fn default() -> Self {
-        Self {
-            states: vec![State::default()],
-            last: 0,
-            sequence: Vec::new(),
-        }
-    }
-}
-
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Rosa<T, V, const S: usize> {
-    /// Query tokens.
-    qs: Vec<T>,
     /// Key tokens form a SAM.
     ks: Sam<T, S>,
     /// Value tokens.
     vs: Vec<V>,
     /// Current state of longest matched `qs` suffix in `ks`.
-    current: usize,
-    /// Current len of the match.
-    len: usize,
+    state: usize,
+}
+
+impl<T, V, const S: usize> Default for Rosa<T, V, S> {
+    fn default() -> Self {
+        Self {
+            ks: Default::default(),
+            vs: Default::default(),
+            state: 0,
+        }
+    }
+}
+
+impl<T, V, const S: usize> Rosa<T, V, S>
+where
+    T: std::fmt::Debug + Copy + Clone + PartialEq + Eq + Into<usize>,
+    V: std::fmt::Debug + Copy + Clone,
+{
+    /// Create an empty `Rosa`.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Push a token to the end of the query tokens, and update the internal state.
+    pub fn push(&mut self, q: T, k: T, v: V) -> Option<V> {
+        let (end, state) = self.ks.match_end_incremental(q, self.state);
+        self.state = state;
+
+        self.ks.push(k);
+        self.vs.push(v);
+
+        end.map(|index| self.vs[index])
+    }
+
+    /// Push a sequence of tokens to the end of the query tokens, and update the internal state.
+    pub fn extend(&mut self, qs: &[T], ks: &[T], vs: &[V]) -> Vec<Option<V>> {
+        itertools::izip!(qs, ks, vs)
+            .map(|(&q, &k, &v)| self.push(q, k, v))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -362,70 +398,132 @@ mod tests {
 
         let mut sam = Sam::<Token, { Token::VARIANT_COUNT }>::new();
 
+        // before inserting any tokens, match_end_incremental should return None
+        let (end, state) = sam.match_end_incremental(A, 0);
+        assert_eq!(end, None);
+        assert_eq!(state, 0);
+
         // start from initial state (0), match 'A'
         sam.push(A);
         let (end, state) = sam.match_end_incremental(A, 0);
         assert_eq!(end, Some(1));
-        log::info!("state: {state}");
 
         // continue matching 'B'
         sam.push(B);
         let (end, state) = sam.match_end_incremental(B, state);
         assert_eq!(end, Some(2));
-        log::info!("state: {state}");
 
         // matches "ABA"
         sam.extend(&[C, A, B, A]);
         let (end, state) = sam.match_end_incremental(A, state);
         assert_eq!(end, Some(6));
-        log::info!("state: {state}");
 
         // non-existing pattern should return None
         sam.push(E);
         let (end, state) = sam.match_end_incremental(D, state);
         assert_eq!(end, None);
-        log::info!("state: {state}");
 
         // continue matching 'E'
         sam.extend(&[F, G, H]);
         let (end, state) = sam.match_end_incremental(E, state);
         assert_eq!(end, Some(7));
-        log::info!("state: {state}");
 
         // continue matching "EF"
         let (end, state) = sam.match_end_incremental(F, state);
         assert_eq!(end, Some(8));
-        log::info!("state: {state}");
 
         // continue matching "EFG"
         let (end, state) = sam.match_end_incremental(G, state);
         assert_eq!(end, Some(9));
-        log::info!("state: {state}");
 
         // continue matching "EFGH"
         let (end, state) = sam.match_end_incremental(H, state);
         assert_eq!(end, Some(10));
-        log::info!("state: {state}");
 
         // key is "ABCABAEFGH", query is "ABADEFGHA", matches 'A'
         let (end, state) = sam.match_end_incremental(A, state);
         assert_eq!(end, Some(6));
-        log::info!("state: {state}");
 
         // matches "AB"
         let (end, state) = sam.match_end_incremental(B, state);
         assert_eq!(end, Some(5));
-        log::info!("state: {state}");
 
         // matches "ABC"
         let (end, state) = sam.match_end_incremental(C, state);
         assert_eq!(end, Some(3));
-        log::info!("state: {state}");
 
         // key is "ABCABAEFGHABCD", query is "ABADEFGHABCD", matches "EFGHABCD"
         sam.extend(&[A, B, C, D]);
-        let (end, state) = sam.match_end_incremental(D, state);
+        let (end, _) = sam.match_end_incremental(D, state);
         assert_eq!(end, Some(14));
-        log::info!("state: {state}");
+    }
+
+    #[test]
+    fn test_rosa_push() {
+        use Token::*;
+        use std::time::Instant;
+
+        fastrand::seed(514);
+
+        fn rosa_qkv_naive(qs: &[Token], ks: &[Token], vs: &[i32]) -> Vec<Option<i32>> {
+            let n = qs.len();
+            let mut out = vec![None; n];
+            for i in 0..n {
+                for w in (1..=i + 1).rev() {
+                    let t = &qs[i + 1 - w..=i];
+                    for j in (0..i + 1 - w).rev() {
+                        if &ks[j..j + w] == t {
+                            out[i] = Some(vs[j + w]);
+                            break;
+                        }
+                    }
+                    if out[i].is_some() {
+                        break;
+                    }
+                }
+            }
+            out
+        }
+
+        // test with fixed sequences
+        let qs = vec![A, B, A, C, A, B, D];
+        let ks = vec![A, B, C, A, B, D, E];
+        let vs = vec![1, 2, 3, 4, 5, 6, 7];
+
+        let mut rosa = Rosa::<Token, i32, { Token::VARIANT_COUNT }>::new();
+        let expected = rosa_qkv_naive(&qs, &ks, &vs);
+        let actual = rosa.extend(&qs, &ks, &vs);
+
+        assert_eq!(actual, expected);
+
+        // test with random sequences and measure performance
+        let mut rng = fastrand::Rng::new();
+        let tokens = [A, B, C, D, E, F, G, H];
+        let n = 1024;
+
+        let qs: Vec<Token> = (0..n).map(|_| tokens[rng.usize(..tokens.len())]).collect();
+        let ks: Vec<Token> = (0..n).map(|_| tokens[rng.usize(..tokens.len())]).collect();
+        let vs: Vec<i32> = (0..n).map(|_| rng.i32(0..16)).collect();
+
+        // measure naive implementation
+        let timer = Instant::now();
+        let expected = rosa_qkv_naive(&qs, &ks, &vs);
+        let naive_time = timer.elapsed();
+
+        // measure rosa implementation
+        let timer = Instant::now();
+        let mut rosa = Rosa::<Token, i32, { Token::VARIANT_COUNT }>::new();
+        let actual = rosa.extend(&qs, &ks, &vs);
+        let rosa_time = timer.elapsed();
+
+        let speedup = naive_time.as_secs_f64() / rosa_time.as_secs_f64();
+
+        // print timing comparison
+        println!("\nperformance comparison (n = {})", n);
+        println!("naive: {naive_time:?}");
+        println!("rosa: {rosa_time:?}");
+        println!("speedup: {speedup:.2}x");
+
+        assert_eq!(actual, expected);
     }
 }
