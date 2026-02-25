@@ -46,7 +46,7 @@ Several architectural variants of the ROSA mechanism have been explored, offerin
 This is currently the best overall design. It quantizes the standard Q/K/V float tensors to 1 bit (e.g., values > 0 map to 1, ≤ 0 map to 0). The ROSA algorithm matches each 1-bit query sequence \( Q_i \) within its corresponding key sequence \( K_i \). The output value is taken from the 1-bit \( V_i \) at the matched position (or set to 0 if unmatched). Finally, a trainable per-channel vector \( e_i \) scales the binary output (1 → \( e_i \), 0 → \( -e_i \)). This 1-bit quantization enables very efficient gradient computation and learning.
 
 ### 2. **ROSA-QKV-floatV**
-An intuitive extension is to use a full-precision (float) value tensor \( V \) and remove the scaling vector \( e_i \). However, initial experiments surprisingly show worse performance. This may be because the specific gradient computation methods developed for the 1-bit variant, combined with learning \( e_i \) and a binary \( V \), are more effective than learning a continuous \( V_{float} \).
+An intuitive extension is to use a full-precision (float) value tensor \( V \) and remove the scaling vector \( e_i \). However, initial experiments surprisingly show worse performance. This may be because the specific gradient computation methods developed for the 1-bit variant, combined with learning \( e_i \) and a binary \( V \), are more effective than learning a continuous \( V_\text{float} \).
 
 ### 3. **ROSA-QKV-lite**
 An extremely simple discrete memory system. It uses a larger vocabulary and simply matches the last occurrence of a query token \( Q \) in the key sequence \( K \). This is equivalent to limiting the ROSA matching length to 1, prioritizing speed and simplicity over contextual depth.
@@ -62,8 +62,8 @@ The provided code implements a production-ready **4-bit ROSA language model** wi
 
 **Core Mechanism (`rosa_slow_4bit_layer`):**
 *   **Grouping:** The model channels (C) are grouped into blocks of 4 (or more generally, `bits`). For each group `g`, a 4-bit symbol is constructed per timestep by packing the 1-bit values from its constituent channels.
-*   **Matching:** The ROSA algorithm operates on these sequences of 4-bit symbols. It matches the query symbol sequence \( Q_{sym} \) against the key symbol sequence \( K_{sym} \) to find the longest suffix match.
-*   **Output:** For a matched position, the corresponding 4-bit value symbol \( V_{sym}[matched\_index] \) is retrieved. This symbol is unpacked, and each bit controls the output for its corresponding channel: `bit=1` outputs `+e[channel]`, `bit=0` outputs `-e[channel]`. Unmatched positions output `0.0`.
+*   **Matching:** The ROSA algorithm operates on these sequences of 4-bit symbols. It matches the query symbol sequence \( Q_\text{sym} \) against the key symbol sequence \( K_\text{sym} \) to find the longest suffix match.
+*   **Output:** For a matched position \( i \), the corresponding 4-bit value symbol \( V_\text{sym}[i] \) is retrieved. This symbol is unpacked, and each bit controls the output for its corresponding channel: `bit=1` outputs `+e[channel]`, `bit=0` outputs `-e[channel]`. Unmatched positions output `0.0`.
 *   **Integration:** The `RWKV_ROSA_4bit` module integrates this layer into a standard Q/K/V projection setup with time-shift mixing, similar to other RWKV components.
 
 **Model Architecture:**
@@ -126,6 +126,139 @@ flowchart TD
         AB[Time Shift Mixing] --> AC[Linear Layer] --> AD[ReLU² Activation] --> AE[Linear Layer]
     end
 ```
+
+---
+
+## Rust Implementation Details
+
+This section describes the concrete implementation of ROSA using Suffix Automaton (SAM) in Rust.
+
+### SAM State Structure
+
+Each state in the suffix automaton maintains:
+
+```rust
+struct State<const S: usize> {
+    /// Transition map: token → state index.
+    next: Box<[Option<NonMaxUsize>; S]>,
+    /// Suffix link (points to a state representing a proper suffix).
+    link: Option<NonMaxUsize>,
+    /// Length of the longest string in this equivalence class.
+    len: usize,
+    /// The last position of the state occurrence in the sequence.
+    end: Option<NonMaxUsize>,
+}
+```
+
+### SAM Structure
+
+```rust
+pub struct Sam<T, const S: usize> {
+    /// All states in the automaton.
+    states: Vec<State<S>>,
+    /// The last state added.
+    last: usize,
+    /// The current sequence of tokens.
+    sequence: Vec<T>,
+}
+```
+
+### Core Algorithm: Token Insertion
+
+When inserting a new token `c`, the algorithm follows these steps:
+
+1. **Create a new state** `cur` with `len = states[last].len + 1`
+2. **Add transitions** from all suffix states of `last` that don't have a transition on `c`
+3. **Handle conflicts**: If a state `p` already transitions on `c` to state `q`:
+   - **Simple case**: If `states[p].len + 1 == states[q].len`, set `link[cur] = q`
+   - **Clone case**: Otherwise, clone state `q` to `clone` with adjusted `len`, update suffix links accordingly
+
+```rust
+fn push_internal(&mut self, token: T) {
+    let end = self.sequence.len();
+    let current = self.states.len();
+    self.states.push(State {
+        link: None,
+        len: self.states[self.last].len + 1,
+        ..Default::default()
+    });
+
+    // add transitions from suffix chain
+    // handle conflicts with clone operation
+    // update suffix links
+    // ...
+}
+```
+
+### Incremental Matching
+
+The key innovation for online processing is `match_end_incremental`, which maintains state across calls:
+
+```rust
+pub fn match_end_incremental(&self, token: T, state: usize) -> (Option<usize>, usize) {
+    let token = token.into();
+    let mut p = state;
+    
+    // traverse suffix links until transition found
+    while self.states[p].next[token].is_none()
+        && let Some(link) = self.states[p].link.map(Into::into)
+    {
+        p = link;
+    }
+
+    match self.states[p].next[token].map(usize::from) {
+        Some(next) => (self.states[next].end.map(Into::into), next),
+        None => (None, 0),
+    }
+}
+```
+
+### ROSA Structure
+
+```rust
+pub struct Rosa<T, V, const S: usize> {
+    /// Key tokens form a SAM.
+    ks: Sam<T, S>,
+    /// Value tokens.
+    vs: Vec<V>,
+    /// Current state of longest matched query suffix in keys.
+    state: usize,
+}
+```
+
+### ROSA Push Operation
+
+The core `push` method implements the online ROSA algorithm:
+
+```rust
+pub fn push(&mut self, q: T, k: T, v: V) -> Option<V> {
+    // match query token against existing key SAM
+    let (end, state) = self.ks.match_end_incremental(q, self.state);
+    self.state = state;
+
+    // add new key-value pair
+    self.ks.push(k);
+    self.vs.push(v);
+
+    // return value at matched position (if any)
+    end.map(|index| self.vs[index])
+}
+```
+
+### Time Complexity Analysis
+
+| Operation | Average | Worst Case |
+|-----------|---------|------------|
+| SAM construction (per token) | O(1) amortized | O(n) |
+| Pattern matching | O(m) | O(m) |
+| Incremental matching (per token) | O(1) amortized | O(n) |
+| Full ROSA sequence (n tokens) | O(n) | O(n²) |
+
+The worst case O(n²) occurs when the sequence has highly repetitive patterns with many suffix link traversals. In practice, for natural language and typical model outputs, performance is close to O(n).
+
+### Memory Efficiency
+
+The SAM typically uses at most `2n - 1` states for a sequence of length `n`. The `NonMaxUsize` type is used for memory optimization, saving 1 bit per state index by utilizing the fact that `usize::MAX` is reserved as a sentinel value.
 
 ---
 
