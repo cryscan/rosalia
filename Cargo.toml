@@ -37,3 +37,6 @@ features = [
     "into",
 ]
 version = "2.1"
+
+[features]
+correctness = []
