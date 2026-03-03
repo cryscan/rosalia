@@ -277,16 +277,36 @@ void main() {
 
     [[unroll]]
     for (uint mat_n = 0; mat_n < NUM_MAT_SUBTILE_N; ++mat_n) {
+#if defined(AFFINE)
         coopmat<C_TYPE, gl_ScopeSubgroup, MAT_M, MAT_N, gl_MatrixUseAccumulator> mat_c;
+#endif
 
         [[unroll]]
         for (uint mat_m = 0; mat_m < NUM_MAT_SUBTILE_M; ++mat_m) {
             uvec4 coord_0 = uvec4(subtile_m, subtile_n, tile_m, tile_n);
             uvec2 coord_1 = uvec2(mat_m, mat_n);
             uint index = layout_index(STRIDE_C_TILE, coord_0) + layout_index(STRIDE_C_SUBTILE.zw, coord_1) + STRIDE_C_BATCH * batch;
-            coopMatLoad(mat_c, input_c.data, index, STRIDE_C_SUBTILE.y, gl_CooperativeMatrixLayoutColumnMajor);
 
+#if defined(AFFINE)
+            coopMatLoad(mat_c, input_c.data, index, STRIDE_C_SUBTILE.y, gl_CooperativeMatrixLayoutColumnMajor);
             result[mat_n][mat_m] = result[mat_n][mat_m] + mat_c;
+#endif
+
+#if defined(ACTIVATION)
+            [[unroll]]
+            for (uint i = 0; i < result[mat_n][mat_m].length(); ++i) {
+                C_TYPE val = result[mat_n][mat_m][i];
+#if ACTIVATION == 1
+                val = max(val, C_TYPE(0));
+                val = val * val;
+#endif
+#if ACTIVATION == 2
+                val = tanh(val);
+#endif
+                result[mat_n][mat_m][i] = val;
+            }
+#endif
+
             coopMatStore(result[mat_n][mat_m], output_o.data, index, STRIDE_C_SUBTILE.y, gl_CooperativeMatrixLayoutColumnMajor);
         }
     }

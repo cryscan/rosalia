@@ -23,5 +23,14 @@ REM DEALINGS IN THE SOFTWARE.
 REM
 @echo on
 
-glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -V src/gemm.comp   -o spv/gemm_f16_f16.spv
-glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -V src/gemm.comp   -o spv/gemm_f16_f32.spv
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -V src/gemm.comp    -o spv/gemm_f16_f16.spv
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -V src/gemm.comp    -o spv/gemm_f16_f32.spv
+
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -DAFFINE    -V src/gemm.comp    -o spv/gemm_f16_f16_affine.spv
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -DAFFINE    -V src/gemm.comp    -o spv/gemm_f16_f32_affine.spv
+
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -DACTIVATION=1  -V src/gemm.comp    -o spv/gemm_f16_f16_relu2.spv
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -DACTIVATION=1  -V src/gemm.comp    -o spv/gemm_f16_f32_relu2.spv
+
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -DACTIVATION=2  -V src/gemm.comp    -o spv/gemm_f16_f16_tanh.spv
+glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -DACTIVATION=2  -V src/gemm.comp    -o spv/gemm_f16_f32_tanh.spv

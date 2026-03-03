@@ -164,7 +164,7 @@ where
 
             let dt_a = A::DATA_TYPE.to_string().to_lowercase();
             let dt_c = C::DATA_TYPE.to_string().to_lowercase();
-            let path = format!("shaders/spv/gemm_{dt_a}_{dt_c}.spv");
+            let path = format!("shaders/spv/gemm_{dt_a}_{dt_c}_affine.spv");
             let file = Asset::get(&path).ok_or("failed to find shader")?;
             let shader = file.data;
 
