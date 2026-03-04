@@ -34,3 +34,5 @@ glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_
 
 glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float16_t  -DACTIVATION=2  -V src/gemm.comp    -o spv/gemm_f16_f16_tanh.spv
 glslangValidator.exe --target-env spirv1.3  -DA_BITS=16 -DA_TYPE=float16_t  -DC_TYPE=float32_t  -DACTIVATION=2  -V src/gemm.comp    -o spv/gemm_f16_f32_tanh.spv
+
+glslangValidator.exe --target-env spirv1.3  -DI_TYPE=float16_t  -DO_TYPE=float16_t  -V src/norm.comp    -o spv/norm_f16_f16.spv

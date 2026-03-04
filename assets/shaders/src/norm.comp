@@ -1,0 +1,140 @@
+#version 450 core
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_EXT_shader_subgroup_extended_types_float16 : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_control_flow_attributes : enable
+
+// Pipeline constants
+layout(constant_id = 0) const uint C = 4096;    // Hidden size
+layout(constant_id = 1) const uint T = 1;       // Number of tokens
+
+layout(constant_id = 2) const uint STRIDE_INPUT_Y = 4096;
+layout(constant_id = 3) const uint STRIDE_INPUT_Z = 4096;
+
+layout(constant_id = 4) const float EPSILON = 1e-5;
+
+const uint BLOCK_SIZE       = 256;
+const uint SUBGROUP_SIZE    = 32;
+const uint NUM_SUBGROUPS    = BLOCK_SIZE / SUBGROUP_SIZE;
+
+const uvec3 SHAPE_INPUT     = uvec3(C, T, 1);
+const uvec3 STRIDE_INPUT    = uvec3(1, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
+
+shared I_TYPE   sketch_sum[NUM_SUBGROUPS];
+shared I_TYPE   sketch_sq_sum[NUM_SUBGROUPS];
+shared I_TYPE   mean;
+shared I_TYPE   inv_std;
+
+layout(buffer_reference) buffer Input   { I_TYPE data[]; }  input_x;
+layout(buffer_reference) buffer Gamma   { I_TYPE data[]; }  gamma;
+layout(buffer_reference) buffer Beta    { I_TYPE data[]; }  beta;
+layout(buffer_reference) buffer Output  { O_TYPE data[]; }  output_o;
+
+layout(set = 0, binding = 0, std430) uniform Params {
+    Input   input_x;
+    Gamma   gamma;
+    Beta    beta;
+    Output  output_o;
+} params;
+
+layout(local_size_x = BLOCK_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+void reduce_sum(uint index, uint step) {
+    if (index < step) {
+        sketch_sum[index] += sketch_sum[index + step];
+        sketch_sq_sum[index] += sketch_sq_sum[index + step];
+    }
+    barrier();
+}
+
+void main() {
+    const uint batch                    = gl_WorkGroupID.y;
+    const uint token                    = gl_WorkGroupID.x;
+    const uint index                    = gl_LocalInvocationIndex;
+    const uint subgroup_id              = gl_SubgroupID;
+    const uint subgroup_invocation_id   = gl_SubgroupInvocationID;
+
+    const uint base_index               = batch * STRIDE_INPUT.z + token * STRIDE_INPUT.y;
+
+    Input   input_x                     = params.input_x;
+    Gamma   gamma                       = params.gamma;
+    Beta    beta                        = params.beta;
+    Output  output_o                    = params.output_o;
+
+    // Phase 1: Compute sum and sum of squares using subgroup operations
+    I_TYPE local_sum = I_TYPE(0.0);
+    I_TYPE local_sq_sum = I_TYPE(0.0);
+    [[unroll]]
+    for (uint i = index; i < SHAPE_INPUT.x; i += BLOCK_SIZE) {
+        I_TYPE value = input_x.data[base_index + i];
+        local_sum += value;
+        local_sq_sum += value * value;
+    }
+
+    // Subgroup-level reduction
+    local_sum = subgroupAdd(local_sum);
+    local_sq_sum = subgroupAdd(local_sq_sum);
+
+    // Write subgroup result to shared memory
+    if (subgroup_invocation_id == 0) {
+        sketch_sum[subgroup_id] = local_sum;
+        sketch_sq_sum[subgroup_id] = local_sq_sum;
+    }
+    barrier();
+
+    // Cross-subgroup reduction
+#if NUM_SUBGROUPS == 2
+    reduce_sum(index, 1);
+#elif NUM_SUBGROUPS == 4
+    reduce_sum(index, 2);
+    reduce_sum(index, 1);
+#elif NUM_SUBGROUPS == 8
+    reduce_sum(index, 4);
+    reduce_sum(index, 2);
+    reduce_sum(index, 1);
+#elif NUM_SUBGROUPS == 16
+    reduce_sum(index, 8);
+    reduce_sum(index, 4);
+    reduce_sum(index, 2);
+    reduce_sum(index, 1);
+#else
+    // Generic reduction for other configurations
+    [[unroll]]
+    for (uint step = NUM_SUBGROUPS >> 1; step > 0; step >>= 1) {
+        if (index < step) {
+            sketch_sum[index] += sketch_sum[index + step];
+            sketch_sq_sum[index] += sketch_sq_sum[index + step];
+        }
+        barrier();
+    }
+#endif
+
+    // Broadcast mean and variance to all threads
+    if (index == 0) {
+        I_TYPE sum = sketch_sum[0];
+        I_TYPE sq_sum = sketch_sq_sum[0];
+        mean = sum / I_TYPE(C);
+        I_TYPE variance = sq_sum / I_TYPE(C) - mean * mean;
+        inv_std = inversesqrt(variance + I_TYPE(EPSILON));
+    }
+    barrier();
+
+    // Phase 2: Normalize and apply affine transformation
+    [[unroll]]
+    for (uint i = index; i < SHAPE_INPUT.x; i += BLOCK_SIZE) {
+        I_TYPE value = input_x.data[base_index + i];
+        I_TYPE normalized = (value - mean) * inv_std;
+
+#if defined(AFFINE)
+        I_TYPE g = gamma.data[i];
+        I_TYPE b = beta.data[i];
+        normalized = normalized * g + b;
+#endif
+
+        output_o.data[base_index + i] = O_TYPE(normalized);
+    }
+}
