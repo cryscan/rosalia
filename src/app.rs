@@ -30,9 +30,11 @@ const INSTANCE_EXTENSIONS: [vk::Extension; 2] = [
     vk::KHR_PORTABILITY_ENUMERATION_EXTENSION,
     vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION,
 ];
-const DEVICE_EXTENSIONS: [vk::Extension; 2] = [
+const DEVICE_EXTENSIONS: [vk::Extension; 4] = [
     vk::KHR_COOPERATIVE_MATRIX_EXTENSION,
+    vk::KHR_EXTERNAL_MEMORY_EXTENSION,
     vk::KHR_EXTERNAL_MEMORY_WIN32_EXTENSION,
+    vk::KHR_DEDICATED_ALLOCATION_EXTENSION,
 ];
 
 const DESCRIPTOR_COUNT_UNIFORM_BUFFER: usize = 1;
@@ -80,7 +82,14 @@ pub fn vk_format_bpb(format: vk::Format) -> usize {
         | vk::Format::R8G8B8A8_SSCALED
         | vk::Format::R8G8B8A8_UINT
         | vk::Format::R8G8B8A8_SINT
-        | vk::Format::R8G8B8A8_SRGB => 4,
+        | vk::Format::R8G8B8A8_SRGB
+        | vk::Format::B8G8R8A8_UNORM
+        | vk::Format::B8G8R8A8_SNORM
+        | vk::Format::B8G8R8A8_USCALED
+        | vk::Format::B8G8R8A8_SSCALED
+        | vk::Format::B8G8R8A8_UINT
+        | vk::Format::B8G8R8A8_SINT
+        | vk::Format::B8G8R8A8_SRGB => 4,
         vk::Format::R16_UNORM
         | vk::Format::R16_SNORM
         | vk::Format::R16_USCALED
@@ -124,7 +133,7 @@ pub fn vk_format_bpb(format: vk::Format) -> usize {
 }
 
 /// Format property: pixels per block.
-pub fn vk_format_ppb(format: vk::Format) -> usize {
+pub fn vk_format_ppb(format: vk::Format) -> [usize; 3] {
     match format {
         // Uncompressed formats have a block size of 1 (1x1 pixel block)
         vk::Format::R8_UNORM
@@ -182,7 +191,14 @@ pub fn vk_format_ppb(format: vk::Format) -> usize {
         | vk::Format::R16G16B16A16_SSCALED
         | vk::Format::R16G16B16A16_UINT
         | vk::Format::R16G16B16A16_SINT
-        | vk::Format::R16G16B16A16_SFLOAT => 1,
+        | vk::Format::R16G16B16A16_SFLOAT
+        | vk::Format::B8G8R8A8_UNORM
+        | vk::Format::B8G8R8A8_SNORM
+        | vk::Format::B8G8R8A8_USCALED
+        | vk::Format::B8G8R8A8_SSCALED
+        | vk::Format::B8G8R8A8_UINT
+        | vk::Format::B8G8R8A8_SINT
+        | vk::Format::B8G8R8A8_SRGB => [1, 1, 1],
         vk::Format::BC1_RGBA_UNORM_BLOCK
         | vk::Format::BC1_RGBA_SRGB_BLOCK
         | vk::Format::BC1_RGB_UNORM_BLOCK
@@ -198,7 +214,7 @@ pub fn vk_format_ppb(format: vk::Format) -> usize {
         | vk::Format::BC6H_UFLOAT_BLOCK
         | vk::Format::BC6H_SFLOAT_BLOCK
         | vk::Format::BC7_UNORM_BLOCK
-        | vk::Format::BC7_SRGB_BLOCK => 16,
+        | vk::Format::BC7_SRGB_BLOCK => [4, 4, 1],
         _ => unimplemented!("unsupported format"),
     }
 }
@@ -401,6 +417,7 @@ mod inner {
     pub struct Image {
         pub app: super::App,
         pub memory: super::Memory,
+        pub r#type: (vk::ImageType, vk::ImageViewType),
         pub image: vk::Image,
         pub view: vk::ImageView,
         pub format: vk::Format,
@@ -832,14 +849,15 @@ impl App {
         size: u64,
         bits: u32,
         properties: vk::MemoryPropertyFlags,
-        ext: vk::ExternalMemoryHandleTypeFlags,
+        external: vk::ExternalMemoryHandleTypeFlags,
+        ext: Option<&mut impl vk::Cast<Target = impl vk::ExtendsMemoryAllocateInfo>>,
     ) -> Result<Memory, MemoryError> {
         let index = self
             .properties
             .memory
             .find(bits, properties)
             .ok_or(MemoryError::NotFound)? as u32;
-        let mut export = vk::ExportMemoryAllocateInfo::builder().handle_types(ext);
+        let mut export = vk::ExportMemoryAllocateInfo::builder().handle_types(external);
         let mut info = vk::MemoryAllocateFlagsInfo::builder()
             .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS)
             .device_mask(0);
@@ -848,10 +866,79 @@ impl App {
             .memory_type_index(index)
             .push_next(&mut export)
             .push_next(&mut info);
+        let info = match ext {
+            Some(ext) => info.push_next(ext),
+            None => info,
+        };
         let handle = self.device.allocate_memory(&info, None)?;
 
         let app = self.clone();
-        Ok(Memory(Arc::new(inner::Memory { app, handle, ext })))
+        Ok(Memory(Arc::new(inner::Memory {
+            app,
+            handle,
+            ext: external,
+        })))
+    }
+
+    /// Imports external device memory from a Win32 handle created by another API (e.g., D3D12).
+    ///
+    /// This function imports Vulkan device memory from an external Win32 handle,
+    /// allowing memory shared by other graphics APIs to be used within Vulkan.
+    ///
+    /// # Arguments
+    ///
+    /// - `size`: The size of memory to import in bytes
+    /// - `bits`: Memory type bits from Vulkan memory requirements
+    /// - `properties`: Memory property flags specifying the type of memory to import
+    /// - `ext`: External memory handle type flags (e.g., `OPAQUE_WIN32`, `D3D12_RESOURCE`)
+    /// - `handle`: The Win32 handle to import
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Memory)` containing the imported Vulkan device memory handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No suitable memory type is found for the specified properties
+    /// - Memory import fails
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the handle is valid.
+    pub unsafe fn import_external_memory_unsafe(
+        &self,
+        size: u64,
+        bits: u32,
+        properties: vk::MemoryPropertyFlags,
+        external: vk::ExternalMemoryHandleTypeFlags,
+        handle: vk::HANDLE,
+        ext: Option<&mut impl vk::Cast<Target = impl vk::ExtendsMemoryAllocateInfo>>,
+    ) -> Result<Memory, MemoryError> {
+        let index = self
+            .properties
+            .memory
+            .find(bits, properties)
+            .ok_or(MemoryError::NotFound)? as u32;
+        let mut import = vk::ImportMemoryWin32HandleInfoKHR::builder()
+            .handle_type(external)
+            .handle(handle);
+        let info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(size)
+            .memory_type_index(index)
+            .push_next(&mut import);
+        let info = match ext {
+            Some(ext) => info.push_next(ext),
+            None => info,
+        };
+        let memory = self.device.allocate_memory(&info, None)?;
+
+        let app = self.clone();
+        Ok(Memory(Arc::new(inner::Memory {
+            app,
+            handle: memory,
+            ext: external,
+        })))
     }
 
     unsafe fn create_tensor_unsafe<T: crate::num::Scalar>(
@@ -1010,12 +1097,17 @@ impl App {
 
         let app = self.clone();
         let extent = [extent[0], extent[1], depth];
-        let pixels = extent[0] * extent[1] * extent[2] * layers;
-        let size = pixels.div_ceil(vk_format_ppb(format)) * vk_format_bpb(format);
+        let ppb = vk_format_ppb(format);
+        let size = layers
+            * extent[0].div_ceil(ppb[0])
+            * extent[1].div_ceil(ppb[1])
+            * extent[2].div_ceil(ppb[2])
+            * vk_format_bpb(format);
 
         Ok(Image(Arc::new(inner::Image {
             app,
             memory,
+            r#type,
             image,
             view,
             format,
@@ -1031,7 +1123,7 @@ impl App {
         extent: [usize; 3],
         format: vk::Format,
         usage: vk::ImageUsageFlags,
-        ext: vk::ExternalMemoryHandleTypeFlags,
+        external: vk::ExternalMemoryHandleTypeFlags,
     ) -> Result<Image, ImageError> {
         let (depth, layers) = match r#type.0 {
             vk::ImageType::_1D => (1, extent[2]),
@@ -1044,7 +1136,7 @@ impl App {
             .width(extent[0] as u32)
             .height(extent[1] as u32)
             .depth(depth as u32);
-        let mut info = vk::ExternalMemoryImageCreateInfo::builder().handle_types(ext);
+        let mut info = vk::ExternalMemoryImageCreateInfo::builder().handle_types(external);
         let info = vk::ImageCreateInfo::builder()
             .push_next(&mut info)
             .image_type(r#type.0)
@@ -1063,7 +1155,9 @@ impl App {
         let size = req.size;
         let bits = req.memory_type_bits;
         let properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
-        let memory = self.create_external_memory(size, bits, properties, ext)?;
+        let mut info = vk::MemoryDedicatedAllocateInfo::builder().image(image);
+        let ext = Some(&mut info);
+        let memory = self.create_external_memory(size, bits, properties, external, ext)?;
 
         self.device.bind_image_memory(image, *memory, 0)?;
 
@@ -1091,12 +1185,135 @@ impl App {
 
         let app = self.clone();
         let extent = [extent[0], extent[1], depth];
-        let pixels = extent[0] * extent[1] * extent[2] * layers;
-        let size = pixels.div_ceil(vk_format_ppb(format)) * vk_format_bpb(format);
+        let ppb = vk_format_ppb(format);
+        let size = layers
+            * extent[0].div_ceil(ppb[0])
+            * extent[1].div_ceil(ppb[1])
+            * extent[2].div_ceil(ppb[2])
+            * vk_format_bpb(format);
 
         Ok(Image(Arc::new(inner::Image {
             app,
             memory,
+            r#type,
+            image,
+            view,
+            format,
+            extent,
+            layers,
+            size,
+        })))
+    }
+
+    /// Imports an image from an external Win32 handle.
+    ///
+    /// This function creates a Vulkan image and imports external memory from a Win32 handle
+    /// (typically from Direct3D 12 or other interop scenarios). The image is created with
+    /// optimal tiling and bound to the imported memory.
+    ///
+    /// # Arguments
+    ///
+    /// - `r#type`: A tuple of `(ImageType, ImageViewType)` specifying the image dimensionality
+    ///   and how the image should be viewed
+    /// - `extent`: The dimensions of the image as `[width, height, depth_or_layers]`.
+    ///   For 2D images, the third element represents array layers.
+    ///   For 3D images, the third element represents depth.
+    /// - `format`: The Vulkan format of the image
+    /// - `usage`: Image usage flags specifying how the image will be used
+    /// - `ext`: External memory handle type flags (e.g., `D3D12_RESOURCE_BIT`)
+    /// - `dx_handle`: The Win32 handle to the external resource to import
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Image)` containing the imported Vulkan image with bound memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Image creation fails
+    /// - No suitable memory type is found
+    /// - Memory import fails
+    /// - Memory binding fails
+    /// - Image view creation fails
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the handle is valid.
+    pub unsafe fn import_external_image_unsafe(
+        &self,
+        r#type: (vk::ImageType, vk::ImageViewType),
+        extent: [usize; 3],
+        format: vk::Format,
+        usage: vk::ImageUsageFlags,
+        external: vk::ExternalMemoryHandleTypeFlags,
+        handle: vk::HANDLE,
+    ) -> Result<Image, ImageError> {
+        let (depth, layers) = match r#type.0 {
+            vk::ImageType::_1D => (1, extent[2]),
+            vk::ImageType::_2D => (1, extent[2]),
+            vk::ImageType::_3D => (extent[2], 1),
+            _ => return Err(ImageError::Type),
+        };
+
+        let extent3d = vk::Extent3D::builder()
+            .width(extent[0] as u32)
+            .height(extent[1] as u32)
+            .depth(depth as u32);
+        let mut info = vk::ExternalMemoryImageCreateInfo::builder().handle_types(external);
+        let info = vk::ImageCreateInfo::builder()
+            .push_next(&mut info)
+            .image_type(r#type.0)
+            .extent(extent3d)
+            .format(format)
+            .mip_levels(1)
+            .array_layers(layers as u32)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .usage(usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .samples(vk::SampleCountFlags::_1);
+
+        let image = self.device.create_image(&info, None)?;
+
+        let req = self.device.get_image_memory_requirements(image);
+        let mut info = vk::MemoryDedicatedAllocateInfo::builder().image(image);
+        let ext = Some(&mut info);
+        let memory = self.import_external_memory_unsafe(
+            req.size,
+            req.memory_type_bits,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            external,
+            handle,
+            ext,
+        )?;
+
+        self.device.bind_image_memory(image, *memory, 0)?;
+
+        let subresource = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .level_count(1)
+            .layer_count(layers as u32);
+
+        let info = vk::ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(r#type.1)
+            .format(format)
+            .subresource_range(*subresource);
+        let view = self.device.create_image_view(&info, None)?;
+
+        let app = self.clone();
+        let extent = [extent[0], extent[1], depth];
+        let ppb = vk_format_ppb(format);
+        let size = layers
+            * extent[0].div_ceil(ppb[0])
+            * extent[1].div_ceil(ppb[1])
+            * extent[2].div_ceil(ppb[2])
+            * vk_format_bpb(format);
+
+        Ok(Image(Arc::new(inner::Image {
+            app,
+            memory,
+            r#type,
             image,
             view,
             format,
@@ -1328,8 +1545,9 @@ impl App {
         bits: u32,
         properties: vk::MemoryPropertyFlags,
         external: vk::ExternalMemoryHandleTypeFlags,
+        ext: Option<&mut impl vk::Cast<Target = impl vk::ExtendsMemoryAllocateInfo>>,
     ) -> Result<Memory, MemoryError> {
-        unsafe { self.create_external_memory_unsafe(size, bits, properties, external) }
+        unsafe { self.create_external_memory_unsafe(size, bits, properties, external, ext) }
     }
 
     /// Creates a tensor with the specified layout and optional length.
@@ -1796,6 +2014,46 @@ impl<T: crate::num::Scalar> Tensor<T> {
             .cmd_copy_buffer(cmd, src.buffer, self.buffer, &[copy]);
         self.clone()
     }
+
+    /// Copies data from another tensor to a range of this tensor using a Vulkan command buffer.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because:
+    /// - It records Vulkan commands that must be properly synchronized
+    /// - The command buffer must be in the recording state
+    /// - The source and destination tensors must be valid and properly initialized
+    /// - `dst_offset + size` must not exceed the destination tensor's buffer size
+    /// - `src_offset + size` must not exceed the source tensor's buffer size
+    ///
+    /// # Arguments
+    ///
+    /// * `cmd` - The Vulkan command buffer to record the copy operation
+    /// * `src` - The source tensor to copy data from
+    /// * `dst_offset` - The offset in the destination tensor (in bytes)
+    /// * `src_offset` - The offset in the source tensor (in bytes)
+    /// * `size` - The size of data to copy (in bytes)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Self` to allow method chaining.
+    pub unsafe fn cmd_copy_from_range(
+        &self,
+        cmd: vk::CommandBuffer,
+        src: &Tensor<T>,
+        dst_offset: u64,
+        src_offset: u64,
+        size: u64,
+    ) -> Self {
+        let copy = vk::BufferCopy::builder()
+            .dst_offset(dst_offset)
+            .src_offset(src_offset)
+            .size(size);
+        self.app
+            .device
+            .cmd_copy_buffer(cmd, src.buffer, self.buffer, &[copy]);
+        self.clone()
+    }
 }
 
 impl<T, Idx> std::ops::Index<Idx> for Tensor<T>
@@ -1879,6 +2137,8 @@ pub enum ImageError {
     Type,
     #[error("size mismatch: {0} != {1}")]
     Size(usize, usize),
+    #[error("layer out of range: total {0}, given {1}")]
+    Range(usize, usize),
     #[error(transparent)]
     Memory(#[from] MemoryError),
     #[error(transparent)]
@@ -2014,6 +2274,97 @@ impl Image {
             .buffer_image_height(0)
             .image_subresource(subresource)
             .image_offset(vk::Offset3D::default())
+            .image_extent(extent3d);
+        self.app.device.cmd_copy_buffer_to_image(
+            cmd,
+            src.buffer,
+            self.image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &[region],
+        );
+        Ok(self.clone())
+    }
+
+    /// Copies data from a tensor to a range of this image using a Vulkan command buffer.
+    ///
+    /// This function records a buffer-to-image copy command that transfers data
+    /// from a tensor's buffer memory to a specified range of this image's array layers.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because:
+    /// - It records Vulkan commands that must be properly synchronized
+    /// - The command buffer must be in the recording state
+    /// - The source tensor and destination image must be valid and properly initialized
+    /// - The range parameters must be within bounds
+    ///
+    /// # Arguments
+    ///
+    /// - `cmd` - The Vulkan command buffer to record the copy operation
+    /// - `src` - The source tensor containing the data to copy
+    /// - `base` - The first array layer to copy to
+    /// - `count` - The number of array layers to copy
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` if the copy operation is successfully recorded, or an error if:
+    /// - The range is out of bounds
+    /// - The Vulkan operation fails
+    pub unsafe fn cmd_copy_from_range<T: crate::num::Scalar>(
+        &self,
+        cmd: vk::CommandBuffer,
+        src: &Tensor<T>,
+        base: usize,
+        count: usize,
+    ) -> Result<Self, ImageError> {
+        let end = base + count;
+        let layers = match self.r#type.1 {
+            vk::ImageViewType::_3D => self.extent[2],
+            vk::ImageViewType::_2D_ARRAY => self.layers,
+            _ => 0,
+        };
+        if end > layers {
+            return Err(ImageError::Range(layers, end));
+        }
+
+        let subresource = match self.r#type.1 {
+            vk::ImageViewType::_2D_ARRAY => vk::ImageSubresourceLayers::builder()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .base_array_layer(base as u32)
+                .layer_count(count as u32)
+                .mip_level(0),
+            _ => vk::ImageSubresourceLayers::builder()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .base_array_layer(0)
+                .layer_count(1)
+                .mip_level(0),
+        };
+        let offset = match self.r#type.1 {
+            vk::ImageViewType::_3D => vk::Offset3D {
+                x: 0,
+                y: 0,
+                z: base as i32,
+            },
+            _ => vk::Offset3D::default(),
+        };
+        let extent3d = match self.r#type.1 {
+            vk::ImageViewType::_3D => vk::Extent3D {
+                width: self.extent[0] as u32,
+                height: self.extent[1] as u32,
+                depth: count as u32,
+            },
+            _ => vk::Extent3D {
+                width: self.extent[0] as u32,
+                height: self.extent[1] as u32,
+                depth: 1,
+            },
+        };
+        let region = vk::BufferImageCopy::builder()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(subresource)
+            .image_offset(offset)
             .image_extent(extent3d);
         self.app.device.cmd_copy_buffer_to_image(
             cmd,
