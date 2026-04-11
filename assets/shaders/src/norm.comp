@@ -43,14 +43,6 @@ layout(set = 0, binding = 0, std430) uniform Params {
 
 layout(local_size_x = BLOCK_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-void reduce_sum(uint index, uint step) {
-    if (index < step) {
-        sketch_sum[index] += sketch_sum[index + step];
-        sketch_sq_sum[index] += sketch_sq_sum[index + step];
-    }
-    barrier();
-}
-
 void main() {
     const uint batch                    = gl_WorkGroupID.y;
     const uint token                    = gl_WorkGroupID.x;
@@ -87,22 +79,6 @@ void main() {
     barrier();
 
     // Cross-subgroup reduction
-#if NUM_SUBGROUPS == 2
-    reduce_sum(index, 1);
-#elif NUM_SUBGROUPS == 4
-    reduce_sum(index, 2);
-    reduce_sum(index, 1);
-#elif NUM_SUBGROUPS == 8
-    reduce_sum(index, 4);
-    reduce_sum(index, 2);
-    reduce_sum(index, 1);
-#elif NUM_SUBGROUPS == 16
-    reduce_sum(index, 8);
-    reduce_sum(index, 4);
-    reduce_sum(index, 2);
-    reduce_sum(index, 1);
-#else
-    // Generic reduction for other configurations
     [[unroll]]
     for (uint step = NUM_SUBGROUPS >> 1; step > 0; step >>= 1) {
         if (index < step) {
@@ -111,7 +87,6 @@ void main() {
         }
         barrier();
     }
-#endif
 
     // Broadcast mean and variance to all threads
     if (index == 0) {
