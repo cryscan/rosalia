@@ -20,40 +20,48 @@ layout(constant_id = 6) const uint M = 4096;
 layout(constant_id = 7) const uint N = 4096;
 layout(constant_id = 8) const uint K = 4096;
 
-layout(constant_id = 9) const uint STRIDE_A_TILE_Y = 4096;
-layout(constant_id = 10) const uint STRIDE_A_TILE_Z = 128;
-layout(constant_id = 11) const uint STRIDE_A_TILE_W = 131072;
+layout(constant_id = 9)  const uint STRIDE_A_TILE_X = 1;
+layout(constant_id = 10) const uint STRIDE_A_TILE_Y = 4096;
+layout(constant_id = 11) const uint STRIDE_A_TILE_Z = 128;
+layout(constant_id = 12) const uint STRIDE_A_TILE_W = 131072;
 
-layout(constant_id = 12) const uint STRIDE_B_TILE_Y = 4096;
-layout(constant_id = 13) const uint STRIDE_B_TILE_Z = 32;
-layout(constant_id = 14) const uint STRIDE_B_TILE_W = 524288;
+layout(constant_id = 13) const uint STRIDE_B_TILE_X = 1;
+layout(constant_id = 14) const uint STRIDE_B_TILE_Y = 4096;
+layout(constant_id = 15) const uint STRIDE_B_TILE_Z = 32;
+layout(constant_id = 16) const uint STRIDE_B_TILE_W = 524288;
 
-layout(constant_id = 15) const uint STRIDE_SH_A_TILE_Y = 136;
-layout(constant_id = 16) const uint STRIDE_SH_B_TILE_Y = 40;
+layout(constant_id = 17) const uint STRIDE_SH_A_TILE_X = 1;
+layout(constant_id = 18) const uint STRIDE_SH_A_TILE_Y = 136;
+layout(constant_id = 19) const uint STRIDE_SH_B_TILE_X = 1;
+layout(constant_id = 20) const uint STRIDE_SH_B_TILE_Y = 40;
 
-layout(constant_id = 17) const uint STRIDE_SH_A_SUBTILE_X = 16;
-layout(constant_id = 18) const uint STRIDE_SH_A_SUBTILE_Y = 2176;
-layout(constant_id = 19) const uint STRIDE_SH_A_SUBTILE_Z = 32;
+layout(constant_id = 21) const uint STRIDE_SH_A_MAT_X = 1;
+layout(constant_id = 22) const uint STRIDE_SH_A_MAT_Y = 136;
 
-layout(constant_id = 20) const uint STRIDE_SH_B_SUBTILE_X = 16;
-layout(constant_id = 21) const uint STRIDE_SH_B_SUBTILE_Y = 640;
-layout(constant_id = 22) const uint STRIDE_SH_B_SUBTILE_Z = 2560;
+layout(constant_id = 23) const uint STRIDE_SH_A_SUBTILE_X = 16;
+layout(constant_id = 24) const uint STRIDE_SH_A_SUBTILE_Y = 2176;
+layout(constant_id = 25) const uint STRIDE_SH_A_SUBTILE_Z = 32;
 
-layout(constant_id = 23) const uint STRIDE_SH_A_MAT_Y = 136;
-layout(constant_id = 24) const uint STRIDE_SH_B_MAT_Y = 40;
+layout(constant_id = 26) const uint STRIDE_SH_B_MAT_X = 1;
+layout(constant_id = 27) const uint STRIDE_SH_B_MAT_Y = 40;
 
-layout(constant_id = 25) const uint STRIDE_C_TILE_X = 32;
-layout(constant_id = 26) const uint STRIDE_C_TILE_Y = 262144;
-layout(constant_id = 27) const uint STRIDE_C_TILE_Z = 128;
-layout(constant_id = 28) const uint STRIDE_C_TILE_W = 524288;
+layout(constant_id = 28) const uint STRIDE_SH_B_SUBTILE_X = 16;
+layout(constant_id = 29) const uint STRIDE_SH_B_SUBTILE_Y = 640;
+layout(constant_id = 30) const uint STRIDE_SH_B_SUBTILE_Z = 2560;
 
-layout(constant_id = 29) const uint STRIDE_C_SUBTILE_Y = 4096;
-layout(constant_id = 30) const uint STRIDE_C_SUBTILE_Z = 16;
-layout(constant_id = 31) const uint STRIDE_C_SUBTILE_W = 65536;
+layout(constant_id = 31) const uint STRIDE_C_SUBTILE_X = 1;
+layout(constant_id = 32) const uint STRIDE_C_SUBTILE_Y = 4096;
+layout(constant_id = 33) const uint STRIDE_C_SUBTILE_Z = 16;
+layout(constant_id = 34) const uint STRIDE_C_SUBTILE_W = 65536;
 
-layout(constant_id = 32) const uint STRIDE_A_BATCH = 16777216;
-layout(constant_id = 33) const uint STRIDE_B_BATCH = 16777216;
-layout(constant_id = 34) const uint STRIDE_C_BATCH = 16777216;
+layout(constant_id = 35) const uint STRIDE_C_TILE_X = 32;
+layout(constant_id = 36) const uint STRIDE_C_TILE_Y = 262144;
+layout(constant_id = 37) const uint STRIDE_C_TILE_Z = 128;
+layout(constant_id = 38) const uint STRIDE_C_TILE_W = 524288;
+
+layout(constant_id = 39) const uint STRIDE_A_BATCH = 16777216;
+layout(constant_id = 40) const uint STRIDE_B_BATCH = 16777216;
+layout(constant_id = 41) const uint STRIDE_C_BATCH = 16777216;
 
 #define DIV_CEIL(A, B)          ((A) + (B) - 1) / (B)
 
@@ -80,32 +88,36 @@ const uint NUM_TILE_K           = K / TILE_K;
 const uvec4 SHAPE_A_TILE        = uvec4(TILE_M, TILE_K, NUM_TILE_M, NUM_TILE_K);
 const uvec4 SHAPE_B_TILE        = uvec4(TILE_K, TILE_N, NUM_TILE_K, NUM_TILE_N);
 
-const uvec4 STRIDE_A_TILE       = uvec4(1, STRIDE_A_TILE_Y, STRIDE_A_TILE_Z, STRIDE_A_TILE_W);
-const uvec4 STRIDE_B_TILE       = uvec4(1, STRIDE_B_TILE_Y, STRIDE_B_TILE_Z, STRIDE_B_TILE_W);
+const uvec4 STRIDE_A_TILE       = uvec4(STRIDE_A_TILE_X, STRIDE_A_TILE_Y, STRIDE_A_TILE_Z, STRIDE_A_TILE_W);
+const uvec4 STRIDE_B_TILE       = uvec4(STRIDE_B_TILE_X, STRIDE_B_TILE_Y, STRIDE_B_TILE_Z, STRIDE_B_TILE_W);
 
 const uvec2 SHAPE_SH_A_TILE     = uvec2(TILE_M, TILE_K);
 const uvec2 SHAPE_SH_B_TILE     = uvec2(TILE_K, TILE_N);
 
-const uvec2 STRIDE_SH_A_TILE    = uvec2(1, STRIDE_SH_A_TILE_Y);
-const uvec2 STRIDE_SH_B_TILE    = uvec2(1, STRIDE_SH_B_TILE_Y);
-
-const uvec3 SHAPE_SH_A_SUBTILE  = uvec3(NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_K, NUM_SUBTILE_TILE_M);
-const uvec3 SHAPE_SH_B_SUBTILE  = uvec3(NUM_MAT_SUBTILE_K, NUM_MAT_SUBTILE_N, NUM_SUBTILE_TILE_N);
-
-const uvec3 STRIDE_SH_A_SUBTILE = uvec3(STRIDE_SH_A_SUBTILE_X, STRIDE_SH_A_SUBTILE_Y, STRIDE_SH_A_SUBTILE_Z);
-const uvec3 STRIDE_SH_B_SUBTILE = uvec3(STRIDE_SH_B_SUBTILE_X, STRIDE_SH_B_SUBTILE_Y, STRIDE_SH_B_SUBTILE_Z);
+const uvec2 STRIDE_SH_A_TILE    = uvec2(STRIDE_SH_A_TILE_X, STRIDE_SH_A_TILE_Y);
+const uvec2 STRIDE_SH_B_TILE    = uvec2(STRIDE_SH_B_TILE_X, STRIDE_SH_B_TILE_Y);
 
 const uvec2 SHAPE_SH_A_MAT      = uvec2(MAT_M, MAT_K);
+
+const uvec2 STRIDE_SH_A_MAT     = uvec2(STRIDE_SH_A_MAT_X, STRIDE_SH_A_MAT_Y);
+
+const uvec3 SHAPE_SH_A_SUBTILE  = uvec3(NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_K, NUM_SUBTILE_TILE_M);
+
+const uvec3 STRIDE_SH_A_SUBTILE = uvec3(STRIDE_SH_A_SUBTILE_X, STRIDE_SH_A_SUBTILE_Y, STRIDE_SH_A_SUBTILE_Z);
+
 const uvec2 SHAPE_SH_B_MAT      = uvec2(MAT_K, MAT_N);
 
-const uvec2 STRIDE_SH_A_MAT     = uvec2(1, STRIDE_SH_A_MAT_Y);
-const uvec2 STRIDE_SH_B_MAT     = uvec2(1, STRIDE_SH_B_MAT_Y);
+const uvec2 STRIDE_SH_B_MAT     = uvec2(STRIDE_SH_B_MAT_X, STRIDE_SH_B_MAT_Y);
+
+const uvec3 SHAPE_SH_B_SUBTILE  = uvec3(NUM_MAT_SUBTILE_K, NUM_MAT_SUBTILE_N, NUM_SUBTILE_TILE_N);
+
+const uvec3 STRIDE_SH_B_SUBTILE = uvec3(STRIDE_SH_B_SUBTILE_X, STRIDE_SH_B_SUBTILE_Y, STRIDE_SH_B_SUBTILE_Z);
+
+const uvec4 SHAPE_C_SUBTILE     = uvec4(MAT_M, MAT_N, NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_N);
+const uvec4 STRIDE_C_SUBTILE    = uvec4(STRIDE_C_SUBTILE_X, STRIDE_C_SUBTILE_Y, STRIDE_C_SUBTILE_Z, STRIDE_C_SUBTILE_W);
 
 const uvec4 SHAPE_C_TILE        = uvec4(NUM_SUBTILE_TILE_M, NUM_SUBTILE_TILE_N, NUM_TILE_M, NUM_TILE_N);
-const uvec4 SHAPE_C_SUBTILE     = uvec4(MAT_M, MAT_N, NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_N);
-
 const uvec4 STRIDE_C_TILE       = uvec4(STRIDE_C_TILE_X, STRIDE_C_TILE_Y, STRIDE_C_TILE_Z, STRIDE_C_TILE_W);
-const uvec4 STRIDE_C_SUBTILE    = uvec4(1, STRIDE_C_SUBTILE_Y, STRIDE_C_SUBTILE_Z, STRIDE_C_SUBTILE_W);
 
 shared uvec4 sh_a[TILE_K * (TILE_M + NUM_ELEMENT_VEC4) / NUM_ELEMENT_VEC4];
 shared uvec4 sh_b[TILE_N * (TILE_K + NUM_ELEMENT_VEC4) / NUM_ELEMENT_VEC4];

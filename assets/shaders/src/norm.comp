@@ -12,17 +12,18 @@
 layout(constant_id = 0) const uint C = 4096;    // Hidden size
 layout(constant_id = 1) const uint T = 1;       // Number of tokens
 
-layout(constant_id = 2) const uint STRIDE_INPUT_Y = 4096;
-layout(constant_id = 3) const uint STRIDE_INPUT_Z = 4096;
+layout(constant_id = 2) const uint STRIDE_INPUT_X = 1;
+layout(constant_id = 3) const uint STRIDE_INPUT_Y = 4096;
+layout(constant_id = 4) const uint STRIDE_INPUT_Z = 4096;
 
-layout(constant_id = 4) const float EPSILON = 1e-5;
+layout(constant_id = 5) const float EPSILON = 1e-5;
 
 const uint BLOCK_SIZE       = 256;
 const uint SUBGROUP_SIZE    = 32;
 const uint NUM_SUBGROUPS    = BLOCK_SIZE / SUBGROUP_SIZE;
 
 const uvec3 SHAPE_INPUT     = uvec3(C, T, 1);
-const uvec3 STRIDE_INPUT    = uvec3(1, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
+const uvec3 STRIDE_INPUT    = uvec3(STRIDE_INPUT_X, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
 
 shared I_TYPE   sketch_sum[NUM_SUBGROUPS];
 shared I_TYPE   sketch_sq_sum[NUM_SUBGROUPS];
