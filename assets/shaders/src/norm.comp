@@ -12,18 +12,22 @@
 layout(constant_id = 0) const uint C = 4096;    // Hidden size
 layout(constant_id = 1) const uint T = 1;       // Number of tokens
 
-layout(constant_id = 2) const uint STRIDE_INPUT_X = 1;
-layout(constant_id = 3) const uint STRIDE_INPUT_Y = 4096;
-layout(constant_id = 4) const uint STRIDE_INPUT_Z = 4096;
+layout(constant_id = 2) const uint STRIDE_X_X = 1;          // Innermost stride of X
+layout(constant_id = 3) const uint STRIDE_X_Y = 4096;       // Stride along T axis of X
+layout(constant_id = 4) const uint STRIDE_X_Z = 4096;       // Batch stride of X
 
-layout(constant_id = 5) const float EPSILON = 1e-5;
+layout(constant_id = 5) const uint STRIDE_Y_X = 1;          // Innermost stride of Y
+layout(constant_id = 6) const uint STRIDE_Y_Y = 4096;       // Stride along T axis of Y
+layout(constant_id = 7) const uint STRIDE_Y_Z = 4096;       // Batch stride of Y
+
+layout(constant_id = 8) const float EPSILON = 1e-5;
 
 const uint BLOCK_SIZE       = 256;
 const uint SUBGROUP_SIZE    = 32;
 const uint NUM_SUBGROUPS    = BLOCK_SIZE / SUBGROUP_SIZE;
 
-const uvec3 SHAPE_INPUT     = uvec3(C, T, 1);
-const uvec3 STRIDE_INPUT    = uvec3(STRIDE_INPUT_X, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
+const uvec3 STRIDE_X        = uvec3(STRIDE_X_X, STRIDE_X_Y, STRIDE_X_Z);
+const uvec3 STRIDE_Y        = uvec3(STRIDE_Y_X, STRIDE_Y_Y, STRIDE_Y_Z);
 
 shared I_TYPE   sketch_sum[NUM_SUBGROUPS];
 shared I_TYPE   sketch_sq_sum[NUM_SUBGROUPS];
@@ -51,7 +55,8 @@ void main() {
     const uint subgroup_id              = gl_SubgroupID;
     const uint subgroup_invocation_id   = gl_SubgroupInvocationID;
 
-    const uint base_index               = batch * STRIDE_INPUT.z + token * STRIDE_INPUT.y;
+    const uint x_base                   = batch * STRIDE_X.z + token * STRIDE_X.y;
+    const uint y_base                   = batch * STRIDE_Y.z + token * STRIDE_Y.y;
 
     Input   input_x                     = params.input_x;
     Gamma   gamma                       = params.gamma;
@@ -62,8 +67,8 @@ void main() {
     I_TYPE local_sum = I_TYPE(0.0);
     I_TYPE local_sq_sum = I_TYPE(0.0);
     [[unroll]]
-    for (uint i = index; i < SHAPE_INPUT.x; i += BLOCK_SIZE) {
-        I_TYPE value = input_x.data[base_index + i];
+    for (uint i = index; i < C; i += BLOCK_SIZE) {
+        I_TYPE value = input_x.data[x_base + i];
         local_sum += value;
         local_sq_sum += value * value;
     }
@@ -101,8 +106,8 @@ void main() {
 
     // Phase 2: Normalize and apply affine transformation
     [[unroll]]
-    for (uint i = index; i < SHAPE_INPUT.x; i += BLOCK_SIZE) {
-        I_TYPE value = input_x.data[base_index + i];
+    for (uint i = index; i < C; i += BLOCK_SIZE) {
+        I_TYPE value = input_x.data[x_base + i];
         I_TYPE normalized = (value - mean) * inv_std;
 
 #if defined(AFFINE)
@@ -111,6 +116,6 @@ void main() {
         normalized = normalized * g + b;
 #endif
 
-        output_o.data[base_index + i] = O_TYPE(normalized);
+        output_o.data[y_base + i] = O_TYPE(normalized);
     }
 }

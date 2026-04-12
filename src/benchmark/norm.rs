@@ -270,9 +270,12 @@ where
         let specialization = [
             *channel as u32,                  // C (hidden size)
             *token as u32,                    // T (number of tokens)
-            layout_input.stride_of(0) as u32, // STRIDE_INPUT_X
-            layout_input.stride_of(1) as u32, // STRIDE_INPUT_Y
-            layout_input.stride_of(2) as u32, // STRIDE_INPUT_Z
+            layout_input.stride_of(0) as u32, // STRIDE_X_X
+            layout_input.stride_of(1) as u32, // STRIDE_X_Y
+            layout_input.stride_of(2) as u32, // STRIDE_X_Z
+            layout_input.stride_of(0) as u32, // STRIDE_Y_X
+            layout_input.stride_of(1) as u32, // STRIDE_Y_Y
+            layout_input.stride_of(2) as u32, // STRIDE_Y_Z
             1.0e-5f32.to_bits(),              // EPSILON (use default 1e-5)
         ];
 
