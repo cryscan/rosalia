@@ -183,7 +183,7 @@ impl Bench for GemmBench<f16, f16, f16, f16> {
         for (i, j) in itertools::iproduct!(0..m, 0..n) {
             let mut dot = data_c[layout_c.value([i, j])];
             for k in 0..k {
-                let a = data_a[layout_a.value([i, k])];
+                let a = data_a[layout_a.value([k, i])];
                 let b = data_b[layout_b.value([k, j])];
                 dot += a * b;
             }
@@ -220,7 +220,7 @@ impl Bench for GemmBench<f16, f16, f32, f32> {
         for (i, j) in itertools::iproduct!(0..m, 0..n) {
             let mut dot = data_c[layout_c.value([i, j])];
             for k in 0..k {
-                let a = data_a[layout_a.value([i, k])].to_f32();
+                let a = data_a[layout_a.value([k, i])].to_f32();
                 let b = data_b[layout_b.value([k, j])].to_f32();
                 dot += a * b;
             }
@@ -304,34 +304,34 @@ where
                 O::DATA_TYPE,
             );
 
-            let layout_a_tile = layout_a.div_tiler([tile.0, tile.2])?;
+            let layout_a_tile = layout_a.div_tiler([tile.2, tile.0])?;
             let layout_b_tile = layout_b.div_tiler([tile.2, tile.1])?;
             let layout_c_tile = layout_c
                 .div_tiler([tile.0, tile.1])?
                 .div_tiler([subtile.0, subtile.1])?
                 .div_tiler([mat.m, mat.n])?;
 
-            let layout_sh_a = Layout::from_shape([tile.0, tile.2]);
-            let layout_sh_b = Layout::from_shape([tile.2, tile.1]);
+            let layout_sh_a_tile = Layout::from_shape([tile.2, tile.0]);
+            let layout_sh_b_tile = Layout::from_shape([tile.2, tile.1]);
 
-            let layout_sh_a_subtile = layout_sh_a
-                .div_tiler([subtile.0, tile.2])?
-                .div_tiler([mat.m, mat.k])?;
-            let layout_sh_b_subtile = layout_sh_b
+            let layout_sh_a_subtile = layout_sh_a_tile
+                .div_tiler([tile.2, subtile.0])?
+                .div_tiler([mat.k, mat.m])?;
+            let layout_sh_b_subtile = layout_sh_b_tile
                 .div_tiler([tile.2, subtile.1])?
                 .div_tiler([mat.k, mat.n])?;
 
             let pad = 16usize / A::DATA_TYPE.size();
-            let layout_sh_a = layout_sh_a.pad_2d(pad);
-            let layout_sh_b = layout_sh_b.pad_2d(pad);
+            let layout_sh_a_tile = layout_sh_a_tile.pad_2d(pad);
+            let layout_sh_b_tile = layout_sh_b_tile.pad_2d(pad);
             let layout_sh_a_subtile = layout_sh_a_subtile.pad_2d(pad);
             let layout_sh_b_subtile = layout_sh_b_subtile.pad_2d(pad);
 
             log::info!("\ttiled a: {layout_a_tile}");
             log::info!("\ttiled b: {layout_b_tile}");
             log::info!("\ttiled c: {layout_c_tile}");
-            log::info!("\tshared a: {layout_sh_a}");
-            log::info!("\tshared b: {layout_sh_b}");
+            log::info!("\tshared a: {layout_sh_a_tile}");
+            log::info!("\tshared b: {layout_sh_b_tile}");
             log::info!("\tshared a: {layout_sh_a_subtile}");
             log::info!("\tshared b: {layout_sh_b_subtile}");
 
@@ -359,15 +359,15 @@ where
                 layout_b_tile.stride_of(1) as u32,       // STRIDE_B_TILE_Y
                 layout_b_tile.stride_of(2) as u32,       // STRIDE_B_TILE_Z
                 layout_b_tile.stride_of(3) as u32,       // STRIDE_B_TILE_W
-                layout_sh_a.stride_of(0) as u32,         // STRIDE_SH_A_TILE_X
-                layout_sh_a.stride_of(1) as u32,         // STRIDE_SH_A_TILE_Y
-                layout_sh_b.stride_of(0) as u32,         // STRIDE_SH_B_TILE_X
-                layout_sh_b.stride_of(1) as u32,         // STRIDE_SH_B_TILE_Y
+                layout_sh_a_tile.stride_of(0) as u32,    // STRIDE_SH_A_TILE_X
+                layout_sh_a_tile.stride_of(1) as u32,    // STRIDE_SH_A_TILE_Y
+                layout_sh_b_tile.stride_of(0) as u32,    // STRIDE_SH_B_TILE_X
+                layout_sh_b_tile.stride_of(1) as u32,    // STRIDE_SH_B_TILE_Y
                 layout_sh_a_subtile.stride_of(0) as u32, // STRIDE_SH_A_MAT_X
                 layout_sh_a_subtile.stride_of(1) as u32, // STRIDE_SH_A_MAT_Y
                 layout_sh_a_subtile.stride_of(2) as u32, // STRIDE_SH_A_SUBTILE_X
                 layout_sh_a_subtile.stride_of(3) as u32, // STRIDE_SH_A_SUBTILE_Y
-                layout_sh_a_subtile.stride_of(4) as u32, // STRIDE_SH_A_SUBTILE_Z
+                layout_sh_a_subtile.stride_of(5) as u32, // STRIDE_SH_A_SUBTILE_Z
                 layout_sh_b_subtile.stride_of(0) as u32, // STRIDE_SH_B_MAT_X
                 layout_sh_b_subtile.stride_of(1) as u32, // STRIDE_SH_B_MAT_Y
                 layout_sh_b_subtile.stride_of(2) as u32, // STRIDE_SH_B_SUBTILE_X

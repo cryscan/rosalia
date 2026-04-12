@@ -85,32 +85,28 @@ const uint NUM_TILE_M           = M / TILE_M;
 const uint NUM_TILE_N           = N / TILE_N;
 const uint NUM_TILE_K           = K / TILE_K;
 
-const uvec4 SHAPE_A_TILE        = uvec4(TILE_M, TILE_K, NUM_TILE_M, NUM_TILE_K);
+const uvec4 SHAPE_A_TILE        = uvec4(TILE_K, TILE_M, NUM_TILE_K, NUM_TILE_M);
 const uvec4 SHAPE_B_TILE        = uvec4(TILE_K, TILE_N, NUM_TILE_K, NUM_TILE_N);
 
 const uvec4 STRIDE_A_TILE       = uvec4(STRIDE_A_TILE_X, STRIDE_A_TILE_Y, STRIDE_A_TILE_Z, STRIDE_A_TILE_W);
 const uvec4 STRIDE_B_TILE       = uvec4(STRIDE_B_TILE_X, STRIDE_B_TILE_Y, STRIDE_B_TILE_Z, STRIDE_B_TILE_W);
 
-const uvec2 SHAPE_SH_A_TILE     = uvec2(TILE_M, TILE_K);
+const uvec2 SHAPE_SH_A_TILE     = uvec2(TILE_K, TILE_M);
 const uvec2 SHAPE_SH_B_TILE     = uvec2(TILE_K, TILE_N);
 
 const uvec2 STRIDE_SH_A_TILE    = uvec2(STRIDE_SH_A_TILE_X, STRIDE_SH_A_TILE_Y);
 const uvec2 STRIDE_SH_B_TILE    = uvec2(STRIDE_SH_B_TILE_X, STRIDE_SH_B_TILE_Y);
 
-const uvec2 SHAPE_SH_A_MAT      = uvec2(MAT_M, MAT_K);
-
+const uvec2 SHAPE_SH_A_MAT      = uvec2(MAT_K, MAT_M);
 const uvec2 STRIDE_SH_A_MAT     = uvec2(STRIDE_SH_A_MAT_X, STRIDE_SH_A_MAT_Y);
 
-const uvec3 SHAPE_SH_A_SUBTILE  = uvec3(NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_K, NUM_SUBTILE_TILE_M);
-
+const uvec3 SHAPE_SH_A_SUBTILE  = uvec3(NUM_MAT_SUBTILE_K, NUM_MAT_SUBTILE_M, NUM_SUBTILE_TILE_M);
 const uvec3 STRIDE_SH_A_SUBTILE = uvec3(STRIDE_SH_A_SUBTILE_X, STRIDE_SH_A_SUBTILE_Y, STRIDE_SH_A_SUBTILE_Z);
 
 const uvec2 SHAPE_SH_B_MAT      = uvec2(MAT_K, MAT_N);
-
 const uvec2 STRIDE_SH_B_MAT     = uvec2(STRIDE_SH_B_MAT_X, STRIDE_SH_B_MAT_Y);
 
 const uvec3 SHAPE_SH_B_SUBTILE  = uvec3(NUM_MAT_SUBTILE_K, NUM_MAT_SUBTILE_N, NUM_SUBTILE_TILE_N);
-
 const uvec3 STRIDE_SH_B_SUBTILE = uvec3(STRIDE_SH_B_SUBTILE_X, STRIDE_SH_B_SUBTILE_Y, STRIDE_SH_B_SUBTILE_Z);
 
 const uvec4 SHAPE_C_SUBTILE     = uvec4(MAT_M, MAT_N, NUM_MAT_SUBTILE_M, NUM_MAT_SUBTILE_N);
@@ -119,7 +115,7 @@ const uvec4 STRIDE_C_SUBTILE    = uvec4(STRIDE_C_SUBTILE_X, STRIDE_C_SUBTILE_Y, 
 const uvec4 SHAPE_C_TILE        = uvec4(NUM_SUBTILE_TILE_M, NUM_SUBTILE_TILE_N, NUM_TILE_M, NUM_TILE_N);
 const uvec4 STRIDE_C_TILE       = uvec4(STRIDE_C_TILE_X, STRIDE_C_TILE_Y, STRIDE_C_TILE_Z, STRIDE_C_TILE_W);
 
-shared uvec4 sh_a[TILE_K * (TILE_M + NUM_ELEMENT_VEC4) / NUM_ELEMENT_VEC4];
+shared uvec4 sh_a[TILE_M * (TILE_K + NUM_ELEMENT_VEC4) / NUM_ELEMENT_VEC4];
 shared uvec4 sh_b[TILE_N * (TILE_K + NUM_ELEMENT_VEC4) / NUM_ELEMENT_VEC4];
 
 coopmat<C_TYPE, gl_ScopeSubgroup, MAT_M, MAT_N, gl_MatrixUseAccumulator> result[NUM_MAT_SUBTILE_N][NUM_MAT_SUBTILE_M];
@@ -208,7 +204,7 @@ void main() {
     [[unroll]]
     for (uint i = 0; i < TILE_M * TILE_K / NUM_ELEMENT_VEC4 / NUM_INVOKE_TILE; ++i) {
         uint index = i * NUM_INVOKE_TILE + local_index;
-        uvec4 coord = uvec4(layout_iota(SHAPE_A_TILE.xy, index * NUM_ELEMENT_VEC4), tile_m, 0);
+        uvec4 coord = uvec4(layout_iota(SHAPE_A_TILE.xy, index * NUM_ELEMENT_VEC4), 0, tile_m);
         index = layout_index(STRIDE_A_TILE, coord) + STRIDE_A_BATCH * batch;
         local_a[i] = input_a.data[index / NUM_ELEMENT_VEC4];
     }
@@ -247,7 +243,7 @@ void main() {
         [[unroll]]
         for (uint i = 0; i < TILE_M * TILE_K / NUM_ELEMENT_VEC4 / NUM_INVOKE_TILE; ++i) {
             uint index = i * NUM_INVOKE_TILE + local_index;
-            uvec4 coord = uvec4(layout_iota(SHAPE_A_TILE.xy, index * NUM_ELEMENT_VEC4), tile_m, tile_k + 1);
+            uvec4 coord = uvec4(layout_iota(SHAPE_A_TILE.xy, index * NUM_ELEMENT_VEC4), tile_k + 1, tile_m);
             index = layout_index(STRIDE_A_TILE, coord) + STRIDE_A_BATCH * batch;
             if (!last) local_a[i] = input_a.data[index / NUM_ELEMENT_VEC4];
         }
@@ -268,8 +264,8 @@ void main() {
 
             [[unroll]]
             for (uint mat_m = 0; mat_m < NUM_MAT_SUBTILE_M; ++mat_m) {
-                uvec3 coord = uvec3(mat_m, mat_k, subtile_m);
-                coopMatLoad(mat_a[mat_m], sh_a, layout_index(STRIDE_SH_A_SUBTILE, coord) / NUM_ELEMENT_VEC4, STRIDE_SH_A_MAT.y / NUM_ELEMENT_VEC4, gl_CooperativeMatrixLayoutColumnMajor);
+                uvec3 coord = uvec3(mat_k, mat_m, subtile_m);
+                coopMatLoad(mat_a[mat_m], sh_a, layout_index(STRIDE_SH_A_SUBTILE, coord) / NUM_ELEMENT_VEC4, STRIDE_SH_A_MAT.y / NUM_ELEMENT_VEC4, gl_CooperativeMatrixLayoutRowMajor);
             }
 
             coopmat<A_TYPE, gl_ScopeSubgroup, MAT_K, MAT_N, gl_MatrixUseB> mat_b;
