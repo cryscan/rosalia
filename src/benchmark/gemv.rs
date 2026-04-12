@@ -84,6 +84,7 @@ where
         // uniform buffer with device addresses
         let params = [
             tensor_a_device.address,
+            tensor_a_device.address,
             tensor_x_device.address,
             tensor_y_device.address,
         ];
@@ -243,6 +244,8 @@ where
             layout_a.stride_of(0) as u32, // STRIDE_A_X (always 1 for contiguous)
             layout_a.stride_of(1) as u32, // STRIDE_A_Y
             layout_a.stride_of(2) as u32, // STRIDE_A_Z (batch stride)
+            layout_x.stride_of(0) as u32, // STRIDE_B_X (always 1 for contiguous)
+            layout_x.stride_of(1) as u32, // STRIDE_B_Y (batch stride)
             layout_x.stride_of(0) as u32, // STRIDE_X_X (always 1 for contiguous)
             layout_x.stride_of(1) as u32, // STRIDE_X_Y (batch stride)
             layout_y.stride_of(0) as u32, // STRIDE_Y_X (always 1 for contiguous)

@@ -206,6 +206,8 @@ fn main() {
         "gemv" => "src/gemv.comp" => {
             I_TYPE => [def("float16_t", "f16"), def("float32_t", "f32")],
             O_TYPE => [def("float16_t", "f16"), def("float32_t", "f32")],
+            AFFINE => [none(""), flag("affine")],
+            ACTIVATION => [none(""), def(1, "relu2"), def(2, "tanh")],
         },
     };
 
