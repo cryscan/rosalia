@@ -139,7 +139,7 @@ For a tensor with logical layout `[batch, token, hidden]`:
 ```glsl
 // small axis first: (hidden, token, batch)
 const uvec3 SHAPE_INPUT  = uvec3(C, T, 1);
-const uvec3 STRIDE_INPUT = uvec3(1, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
+const uvec3 STRIDE_INPUT = uvec3(STRIDE_INPUT_X, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
 ```
 
 The equivalent PyTorch layout would be `shape = (1, T, C)`.
@@ -153,45 +153,48 @@ The equivalent PyTorch layout would be `shape = (1, T, C)`.
 
 ```glsl
 const uvec3 SHAPE_INPUT      = uvec3(C, T, 1);                          // rank 3
-const uvec4 SHAPE_A_TILE     = uvec4(TILE_M, TILE_K, NUM_TILE_M, NUM_TILE_K);  // rank 4
-const uvec2 SHAPE_SH_A_TILE  = uvec2(TILE_M, TILE_K);                   // rank 2
+const uvec4 SHAPE_A_TILE     = uvec4(TILE_K, TILE_M, NUM_TILE_K, NUM_TILE_M);  // rank 4
+const uvec2 SHAPE_SH_A_TILE  = uvec2(TILE_K, TILE_M);                   // rank 2
 ```
 
 ### STRIDE Naming
 
 - **UPPER_SNAKE_CASE**
 - Pattern: `STRIDE_<TENSOR>_<COMPONENT>` for individual stride constants
-  - Components use `Y`, `Z`, `W` (component `X` is always 1 for contiguous tensors and is never named separately)
+  - Components use `X`, `Y`, `Z`, `W`
+  - `_X` is always declared explicitly even when its value is 1
 - Pattern: `STRIDE_<TENSOR>` for the composed stride vector
 - Individual stride constants are declared as pipeline constants; the composed vector is a `const`
 
 ```glsl
 // Pipeline constants for individual strides
-layout(constant_id = 2) const uint STRIDE_INPUT_Y = 4096;
-layout(constant_id = 3) const uint STRIDE_INPUT_Z = 4096;
+layout(constant_id = 2) const uint STRIDE_INPUT_X = 1;
+layout(constant_id = 3) const uint STRIDE_INPUT_Y = 4096;
+layout(constant_id = 4) const uint STRIDE_INPUT_Z = 4096;
 
-// Composed stride vector (X=1 is implicit)
-const uvec3 STRIDE_INPUT = uvec3(1, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
+// Composed stride vector
+const uvec3 STRIDE_INPUT = uvec3(STRIDE_INPUT_X, STRIDE_INPUT_Y, STRIDE_INPUT_Z);
 ```
 
 For higher-rank tensors:
 
 ```glsl
-layout(constant_id = 9)  const uint STRIDE_A_TILE_Y = 4096;
-layout(constant_id = 10) const uint STRIDE_A_TILE_Z = 128;
-layout(constant_id = 11) const uint STRIDE_A_TILE_W = 131072;
+layout(constant_id = 9)  const uint STRIDE_A_TILE_X = 1;
+layout(constant_id = 10) const uint STRIDE_A_TILE_Y = 4096;
+layout(constant_id = 11) const uint STRIDE_A_TILE_Z = 128;
+layout(constant_id = 12) const uint STRIDE_A_TILE_W = 131072;
 
-const uvec4 STRIDE_A_TILE = uvec4(1, STRIDE_A_TILE_Y, STRIDE_A_TILE_Z, STRIDE_A_TILE_W);
+const uvec4 STRIDE_A_TILE = uvec4(STRIDE_A_TILE_X, STRIDE_A_TILE_Y, STRIDE_A_TILE_Z, STRIDE_A_TILE_W);
 ```
 
 ### Component Mapping
 
-| Vector Component | Axis Position | Stride Value        | Constant Name Suffix |
-|------------------|---------------|---------------------|----------------------|
-| `.x`             | 0 (innermost) | Always 1            | (never named)        |
-| `.y`             | 1             | shape[0]            | `_Y`                 |
-| `.z`             | 2             | shape[0] × shape[1] | `_Z`                 |
-| `.w`             | 3             | shape[0] × shape[1] × shape[2] | `_W`     |
+| Vector Component | Axis Position | Stride Value (contiguous) | Constant Name Suffix |
+|------------------|---------------|---------------------------|----------------------|
+| `.x`             | 0 (innermost) | 1                         | `_X`                 |
+| `.y`             | 1             | shape[0] × stride.x       | `_Y`                 |
+| `.z`             | 2             | shape[0] × stride.y       | `_Z`                 |
+| `.w`             | 3             | shape[0] × stride.y × stride.z | `_W`            |
 
 ### Index Computation
 

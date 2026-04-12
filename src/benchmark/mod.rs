@@ -1,9 +1,11 @@
 use crate::{layout::IntoLayout, num::FromI8};
 
 mod gemm;
+mod gemv;
 mod norm;
 
 pub use gemm::GemmBench;
+pub use gemv::GemvBench;
 pub use norm::LayerNormBench;
 
 pub trait Bench {

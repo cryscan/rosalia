@@ -45,6 +45,12 @@ enum Command {
         #[arg(long, short, value_enum, default_value_t = Precision::All)]
         precision: Precision,
     },
+    /// Run matrix-vector multiplication benchmark.
+    Gemv {
+        /// Precision to use for gemv.
+        #[arg(long, short, value_enum, default_value_t = Precision::All)]
+        precision: Precision,
+    },
 }
 
 fn init() -> Result<(), Box<dyn Error>> {
@@ -86,6 +92,13 @@ fn benchmark_matmul_f32(app: &app::App) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Run f16 gemv benchmark.
+fn benchmark_gemv_f16(app: &app::App) -> Result<(), Box<dyn Error>> {
+    let bench = benchmark::GemvBench::<f16, f16>::new(app, M, K, 1)?;
+    bench.benchmark_gemv()?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     init()?;
 
@@ -99,6 +112,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             Precision::All => {
                 benchmark_matmul_f16(&app)?;
                 benchmark_matmul_f32(&app)?;
+            }
+        },
+        Command::Gemv { precision } => match precision {
+            Precision::F16 | Precision::All => {
+                benchmark_gemv_f16(&app)?;
+            }
+            Precision::F32 => {
+                benchmark_gemv_f16(&app)?;
             }
         },
     }
