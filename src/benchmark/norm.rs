@@ -324,16 +324,7 @@ where
         }
 
         #[cfg(feature = "correctness")]
-        {
-            let mismatches = self.check_ans(&ans);
-            if mismatches > 0 {
-                log::error!(
-                    "LayerNorm correctness check failed: {} mismatches",
-                    mismatches
-                );
-            }
-            assert_eq!(mismatches, 0, "LayerNorm correctness check failed");
-        }
+        assert_eq!(self.check_ans(&ans), 0);
 
         Ok(())
     }
@@ -341,46 +332,46 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
+    use half::f16;
+    use simplelog::{LevelFilter, SimpleLogger};
+
     use super::*;
     use crate::app::App;
-    use half::f16;
 
-    fn init_test() -> App {
-        let _ = simplelog::SimpleLogger::init(
-            simplelog::LevelFilter::Debug,
-            simplelog::Config::default(),
-        );
+    fn init_test() {
+        _ = SimpleLogger::init(LevelFilter::Debug, Default::default());
         fastrand::seed(514);
-        App::new().expect("failed to create app")
     }
 
     #[test]
-    fn test_layer_norm_f16_f16() {
-        let app = init_test();
+    fn test_layer_norm_f16_f16() -> Result<(), Box<dyn Error>> {
+        init_test();
+
+        let app = App::new()?;
 
         // small sizes for quick testing
         let channel = 64;
         let token = 16;
         let batch = 4;
 
-        let bench = LayerNormBench::<f16, f16>::new(&app, channel, token, batch)
-            .expect("failed to create LayerNormBench");
-
-        bench.benchmark_layer_norm().expect("benchmark failed");
+        let bench = LayerNormBench::<f16, f16>::new(&app, channel, token, batch)?;
+        bench.benchmark_layer_norm()
     }
 
     #[test]
-    fn test_layer_norm_f16_f16_small() {
-        let app = init_test();
+    fn test_layer_norm_f16_f16_small() -> Result<(), Box<dyn Error>> {
+        init_test();
+
+        let app = App::new()?;
 
         // minimal sizes for basic correctness
         let c = 8;
         let t = 2;
         let batch = 1;
 
-        let bench = LayerNormBench::<f16, f16>::new(&app, c, t, batch)
-            .expect("failed to create LayerNormBench");
-
-        bench.benchmark_layer_norm().expect("benchmark failed");
+        let bench = LayerNormBench::<f16, f16>::new(&app, c, t, batch)?;
+        bench.benchmark_layer_norm()
     }
 }

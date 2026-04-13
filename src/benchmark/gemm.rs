@@ -463,3 +463,47 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use half::f16;
+    use simplelog::{LevelFilter, SimpleLogger};
+
+    use super::*;
+    use crate::app::App;
+
+    #[cfg(feature = "correctness")]
+    const M: usize = 256;
+    #[cfg(feature = "correctness")]
+    const N: usize = 256;
+    #[cfg(not(feature = "correctness"))]
+    const M: usize = 4096;
+    #[cfg(not(feature = "correctness"))]
+    const N: usize = 4096;
+    const K: usize = 4096;
+
+    fn init_test() {
+        _ = SimpleLogger::init(LevelFilter::Debug, Default::default());
+        fastrand::seed(514);
+    }
+
+    #[test]
+    fn test_matmul_f16() -> Result<(), Box<dyn Error>> {
+        init_test();
+
+        let app = App::new()?;
+        let bench = GemmBench::<f16, f16, f16, f16>::new(&app, M, N, K)?;
+        bench.benchmark_cooperative_matrix()
+    }
+
+    #[test]
+    fn test_matmul_f32() -> Result<(), Box<dyn Error>> {
+        init_test();
+
+        let app = App::new()?;
+        let bench = GemmBench::<f16, f16, f32, f32>::new(&app, M, N, K)?;
+        bench.benchmark_cooperative_matrix()
+    }
+}
