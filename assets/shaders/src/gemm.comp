@@ -12,8 +12,8 @@ layout(constant_id = 0) const uint MAT_M = 16;
 layout(constant_id = 1) const uint MAT_N = 16;
 layout(constant_id = 2) const uint MAT_K = 16;
 
-layout(constant_id = 3) const uint TILE_M = 128;
-layout(constant_id = 4) const uint TILE_N = 128;
+layout(constant_id = 3) const uint TILE_M = 256;
+layout(constant_id = 4) const uint TILE_N = 256;
 layout(constant_id = 5) const uint TILE_K = 32;
 
 layout(constant_id = 6) const uint M = 4096;
@@ -22,46 +22,46 @@ layout(constant_id = 8) const uint K = 4096;
 
 layout(constant_id = 9)  const uint STRIDE_A_TILE_X = 1;
 layout(constant_id = 10) const uint STRIDE_A_TILE_Y = 4096;
-layout(constant_id = 11) const uint STRIDE_A_TILE_Z = 128;
-layout(constant_id = 12) const uint STRIDE_A_TILE_W = 131072;
+layout(constant_id = 11) const uint STRIDE_A_TILE_Z = 32;
+layout(constant_id = 12) const uint STRIDE_A_TILE_W = 1048576;
 
 layout(constant_id = 13) const uint STRIDE_B_TILE_X = 1;
 layout(constant_id = 14) const uint STRIDE_B_TILE_Y = 4096;
 layout(constant_id = 15) const uint STRIDE_B_TILE_Z = 32;
-layout(constant_id = 16) const uint STRIDE_B_TILE_W = 524288;
+layout(constant_id = 16) const uint STRIDE_B_TILE_W = 1048576;
 
 layout(constant_id = 17) const uint STRIDE_SH_A_TILE_X = 1;
-layout(constant_id = 18) const uint STRIDE_SH_A_TILE_Y = 136;
+layout(constant_id = 18) const uint STRIDE_SH_A_TILE_Y = 40;
 layout(constant_id = 19) const uint STRIDE_SH_B_TILE_X = 1;
 layout(constant_id = 20) const uint STRIDE_SH_B_TILE_Y = 40;
 
 layout(constant_id = 21) const uint STRIDE_SH_A_MAT_X = 1;
-layout(constant_id = 22) const uint STRIDE_SH_A_MAT_Y = 136;
+layout(constant_id = 22) const uint STRIDE_SH_A_MAT_Y = 40;
 
 layout(constant_id = 23) const uint STRIDE_SH_A_SUBTILE_X = 16;
-layout(constant_id = 24) const uint STRIDE_SH_A_SUBTILE_Y = 2176;
-layout(constant_id = 25) const uint STRIDE_SH_A_SUBTILE_Z = 32;
+layout(constant_id = 24) const uint STRIDE_SH_A_SUBTILE_Y = 640;
+layout(constant_id = 25) const uint STRIDE_SH_A_SUBTILE_Z = 2560;
 
 layout(constant_id = 26) const uint STRIDE_SH_B_MAT_X = 1;
 layout(constant_id = 27) const uint STRIDE_SH_B_MAT_Y = 40;
 
 layout(constant_id = 28) const uint STRIDE_SH_B_SUBTILE_X = 16;
 layout(constant_id = 29) const uint STRIDE_SH_B_SUBTILE_Y = 640;
-layout(constant_id = 30) const uint STRIDE_SH_B_SUBTILE_Z = 2560;
+layout(constant_id = 30) const uint STRIDE_SH_B_SUBTILE_Z = 5120;
 
 layout(constant_id = 31) const uint STRIDE_C_SUBTILE_X = 1;
 layout(constant_id = 32) const uint STRIDE_C_SUBTILE_Y = 4096;
 layout(constant_id = 33) const uint STRIDE_C_SUBTILE_Z = 16;
 layout(constant_id = 34) const uint STRIDE_C_SUBTILE_W = 65536;
 
-layout(constant_id = 35) const uint STRIDE_C_TILE_X = 32;
-layout(constant_id = 36) const uint STRIDE_C_TILE_Y = 262144;
-layout(constant_id = 37) const uint STRIDE_C_TILE_Z = 128;
-layout(constant_id = 38) const uint STRIDE_C_TILE_W = 524288;
+layout(constant_id = 35) const uint STRIDE_C_TILE_X = 64;
+layout(constant_id = 36) const uint STRIDE_C_TILE_Y = 524288;
+layout(constant_id = 37) const uint STRIDE_C_TILE_Z = 256;
+layout(constant_id = 38) const uint STRIDE_C_TILE_W = 1048576;
 
-layout(constant_id = 39) const uint STRIDE_A_BATCH = 16777216;
-layout(constant_id = 40) const uint STRIDE_B_BATCH = 16777216;
-layout(constant_id = 41) const uint STRIDE_C_BATCH = 16777216;
+layout(constant_id = 39) const uint STRIDE_A_BATCH = 0;
+layout(constant_id = 40) const uint STRIDE_B_BATCH = 0;
+layout(constant_id = 41) const uint STRIDE_C_BATCH = 0;
 
 #define DIV_CEIL(A, B)          ((A) + (B) - 1) / (B)
 

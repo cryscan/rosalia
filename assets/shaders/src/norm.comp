@@ -68,7 +68,7 @@ void main() {
     I_TYPE local_sq_sum = I_TYPE(0.0);
     [[unroll]]
     for (uint i = index; i < C; i += BLOCK_SIZE) {
-        I_TYPE value = input_x.data[x_base + i];
+        I_TYPE value = input_x.data[x_base + i * STRIDE_X.x];
         local_sum += value;
         local_sq_sum += value * value;
     }
@@ -107,15 +107,15 @@ void main() {
     // Phase 2: Normalize and apply affine transformation
     [[unroll]]
     for (uint i = index; i < C; i += BLOCK_SIZE) {
-        I_TYPE value = input_x.data[x_base + i];
+        I_TYPE value = input_x.data[x_base + i * STRIDE_X.x];
         I_TYPE normalized = (value - mean) * inv_std;
 
 #if defined(AFFINE)
-        I_TYPE g = gamma.data[i];
-        I_TYPE b = beta.data[i];
+        I_TYPE g = gamma.data[i * STRIDE_X.x];
+        I_TYPE b = beta.data[i * STRIDE_X.x];
         normalized = normalized * g + b;
 #endif
 
-        output_o.data[y_base + i] = O_TYPE(normalized);
+        output_o.data[y_base + i * STRIDE_Y.x] = O_TYPE(normalized);
     }
 }

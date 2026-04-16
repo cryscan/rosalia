@@ -77,8 +77,8 @@ void main() {
     I_TYPE local_dot = I_TYPE(0.0);
     [[unroll]]
     for (uint k = index; k < K; k += BLOCK_SIZE) {
-        I_TYPE a_val = input_a.data[a_base + k];
-        I_TYPE x_val = input_x.data[x_base + k];
+        I_TYPE a_val = input_a.data[a_base + k * STRIDE_A.x];
+        I_TYPE x_val = input_x.data[x_base + k * STRIDE_X.x];
         local_dot += a_val * x_val;
     }
 
@@ -105,7 +105,7 @@ void main() {
         I_TYPE result = sketch_dot[0];
 
 #if defined(AFFINE)
-        result = result + input_b.data[batch * STRIDE_B.y + row];
+        result = result + input_b.data[batch * STRIDE_B.y + row * STRIDE_B.x];
 #endif
 
 #if defined(ACTIVATION)
@@ -118,6 +118,6 @@ void main() {
 #endif
 #endif
 
-        output_y.data[batch * STRIDE_Y.y + row] = O_TYPE(result);
+        output_y.data[batch * STRIDE_Y.y + row * STRIDE_Y.x] = O_TYPE(result);
     }
 }
