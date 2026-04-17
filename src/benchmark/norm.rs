@@ -352,8 +352,8 @@ mod tests {
         let app = App::new()?;
 
         // small sizes for quick testing
-        let channel = 64;
-        let token = 16;
+        let channel = 4096;
+        let token = 64;
         let batch = 4;
 
         let bench = LayerNormBench::<f16, f16>::new(&app, channel, token, batch)?;

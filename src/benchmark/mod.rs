@@ -3,10 +3,12 @@ use crate::{layout::IntoLayout, num::FromI8};
 mod gemm;
 mod gemv;
 mod norm;
+mod token_shift;
 
 pub use gemm::GemmBench;
 pub use gemv::GemvBench;
 pub use norm::LayerNormBench;
+pub use token_shift::TokenShiftBench;
 
 pub trait Bench {
     /// The output type of the computation.
