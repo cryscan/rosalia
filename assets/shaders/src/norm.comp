@@ -10,17 +10,25 @@
 
 // Pipeline constants
 layout(constant_id = 0) const uint C = 4096;    // Hidden size
-layout(constant_id = 1) const uint T = 1;       // Number of tokens
+layout(constant_id = 1) const uint H = 1;       // Number of heads
 
 layout(constant_id = 2) const uint STRIDE_X_X = 1;          // Innermost stride of X
-layout(constant_id = 3) const uint STRIDE_X_Y = 4096;       // Stride along T axis of X
+layout(constant_id = 3) const uint STRIDE_X_Y = 4096;       // Stride along H axis of X
 layout(constant_id = 4) const uint STRIDE_X_Z = 4096;       // Batch stride of X
 
 layout(constant_id = 5) const uint STRIDE_Y_X = 1;          // Innermost stride of Y
-layout(constant_id = 6) const uint STRIDE_Y_Y = 4096;       // Stride along T axis of Y
+layout(constant_id = 6) const uint STRIDE_Y_Y = 4096;       // Stride along H axis of Y
 layout(constant_id = 7) const uint STRIDE_Y_Z = 4096;       // Batch stride of Y
 
-layout(constant_id = 8) const float EPSILON = 1e-5;
+layout(constant_id = 8) const uint STRIDE_G_X = 1;          // Innermost stride of Gamma
+layout(constant_id = 9) const uint STRIDE_G_Y = 4096;       // Stride along H axis of Gamma
+layout(constant_id = 10) const uint STRIDE_G_Z = 4096;      // Batch stride of Gamma
+
+layout(constant_id = 11) const uint STRIDE_B_X = 1;         // Innermost stride of Beta
+layout(constant_id = 12) const uint STRIDE_B_Y = 4096;      // Stride along H axis of Beta
+layout(constant_id = 13) const uint STRIDE_B_Z = 4096;      // Batch stride of Beta
+
+layout(constant_id = 14) const float EPSILON = 1e-5;
 
 const uint BLOCK_SIZE       = 256;
 const uint SUBGROUP_SIZE    = 32;
@@ -28,6 +36,8 @@ const uint NUM_SUBGROUPS    = BLOCK_SIZE / SUBGROUP_SIZE;
 
 const uvec3 STRIDE_X        = uvec3(STRIDE_X_X, STRIDE_X_Y, STRIDE_X_Z);
 const uvec3 STRIDE_Y        = uvec3(STRIDE_Y_X, STRIDE_Y_Y, STRIDE_Y_Z);
+const uvec3 STRIDE_G        = uvec3(STRIDE_G_X, STRIDE_G_Y, STRIDE_G_Z);
+const uvec3 STRIDE_B        = uvec3(STRIDE_B_X, STRIDE_B_Y, STRIDE_B_Z);
 
 shared I_TYPE   sketch_sum[NUM_SUBGROUPS];
 shared I_TYPE   sketch_sq_sum[NUM_SUBGROUPS];
@@ -50,13 +60,15 @@ layout(local_size_x = BLOCK_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
     const uint batch                    = gl_WorkGroupID.y;
-    const uint token                    = gl_WorkGroupID.x;
+    const uint head                     = gl_WorkGroupID.x;
     const uint index                    = gl_LocalInvocationIndex;
     const uint subgroup_id              = gl_SubgroupID;
     const uint subgroup_invocation_id   = gl_SubgroupInvocationID;
 
-    const uint x_base                   = batch * STRIDE_X.z + token * STRIDE_X.y;
-    const uint y_base                   = batch * STRIDE_Y.z + token * STRIDE_Y.y;
+    const uint x_base                   = batch * STRIDE_X.z + head * STRIDE_X.y;
+    const uint y_base                   = batch * STRIDE_Y.z + head * STRIDE_Y.y;
+    const uint g_base                   = batch * STRIDE_G.z + head * STRIDE_G.y;
+    const uint b_base                   = batch * STRIDE_B.z + head * STRIDE_B.y;
 
     Input   input_x                     = params.input_x;
     Gamma   gamma                       = params.gamma;
@@ -111,8 +123,8 @@ void main() {
         I_TYPE normalized = (value - mean) * inv_std;
 
 #if defined(AFFINE)
-        I_TYPE g = gamma.data[i * STRIDE_X.x];
-        I_TYPE b = beta.data[i * STRIDE_X.x];
+        I_TYPE g = gamma.data[g_base + i * STRIDE_G.x];
+        I_TYPE b = beta.data[b_base + i * STRIDE_B.x];
         normalized = normalized * g + b;
 #endif
 

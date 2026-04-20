@@ -1,3 +1,58 @@
+//! Benchmark for the `norm` compute shader.
+//!
+//! # Norm Operation
+//!
+//! The norm shader implements a unified normalization operator that supports both
+//! Layer Normalization and Group Normalization through the same compute kernel,
+//! differentiated only by the stride configuration of the parameter tensors.
+//!
+//! ## Dimensions
+//!
+//! - **Channel (C)**: The normalization dimension. Mean and variance are computed
+//!   across all channels within each group independently.
+//! - **Head (H)**: The number of groups. Each head computes its own normalization
+//!   statistics (mean and inverse standard deviation) independently.
+//! - **Batch**: Allows processing multiple independent instances in a single dispatch.
+//!
+//! ## Layer Norm vs Group Norm
+//!
+//! Both normalization variants use the same shader with different head counts
+//! and stride configurations:
+//!
+//! ### Layer Norm (H = 1)
+//!
+//! In Layer Norm, the entire channel dimension is treated as a single group (H = 1).
+//! Mean and variance are computed over all channels for each batch element independently.
+//! Gamma and Beta are per-channel parameters shared across all batches.
+//!
+//! ### Group Norm (H > 1)
+//!
+//! In Group Norm, the channel dimension is divided into H groups. Each group computes
+//! its own mean and variance independently, then applies the affine transformation.
+//! Gamma and Beta remain per-channel parameters shared across batches, but with
+//! group-dependent strides.
+//!
+//! Stride configuration for Gamma/Beta:
+//! - `STRIDE_G_Y` = C, `STRIDE_G_Z` = 0 — Gamma is indexed as [channel, head],
+//!   shared across batches.
+//! - `STRIDE_B_Y` = C, `STRIDE_B_Z` = 0 — Beta is indexed as [channel, head],
+//!   shared across batches.
+//!
+//! ### The `STRIDE_*_Z = 0` Technique
+//!
+//! Setting `STRIDE_G_Z = 0` and `STRIDE_B_Z = 0` is a deliberate technique that
+//! makes Gamma and Beta invariant to the batch dimension. Since Gamma and Beta are
+//! model-level parameters (fixed during inference), they should be shared across all
+//! batch elements. The shader computes the element offset as:
+//!
+//! ```text
+//! g_base = batch * STRIDE_G.z + head * STRIDE_G.y
+//! ```
+//!
+//! By zeroing `STRIDE_G.z`, the `batch * STRIDE_G.z` term vanishes, causing all
+//! batches to reference the same Gamma/Beta data. This avoids the need for a separate
+//! "broadcast" code path in the shader.
+
 use std::error::Error;
 
 use half::f16;
@@ -11,16 +66,18 @@ use crate::{
     num::{DataType, FromI8, Scalar},
 };
 
-/// Benchmark for LayerNorm operation.
+/// Benchmark for the unified norm operator (Layer Norm / Group Norm).
 ///
-/// Validates the correctness of the norm.comp shader for layer normalization.
-/// The shader computes: output = ((x - mean) / sqrt(variance + epsilon)) * gamma + beta.
+/// When `head = 1`, this behaves as Layer Norm (normalization over the full channel
+/// dimension per batch element). When `head > 1`, it behaves as Group Norm (channels
+/// are divided into `head` groups, each normalized independently). See the module-level
+/// documentation for details on stride configuration.
 #[derive(Debug)]
 pub struct LayerNormBench<I, O> {
     pub app: App,
 
     pub channel: usize,
-    pub token: usize,
+    pub head: usize,
     pub batch: usize,
 
     pub layout_input: Layout,
@@ -55,14 +112,14 @@ where
     pub fn new(
         app: &App,
         channel: usize,
-        token: usize,
+        head: usize,
         batch: usize,
     ) -> Result<Self, Box<dyn Error>> {
         let app = app.clone();
 
-        let layout_input = Layout::from_shape([channel, token, batch]);
-        let layout_gamma = Layout::from_shape([channel]);
-        let layout_beta = Layout::from_shape([channel]);
+        let layout_input = Layout::from_shape([channel, head, batch]);
+        let layout_gamma = Layout::from_shape([channel, head, 1]);
+        let layout_beta = Layout::from_shape([channel, head, 1]);
 
         let data_input = create_data(&layout_input);
         let data_gamma = create_data(&layout_gamma);
@@ -124,7 +181,7 @@ where
         Ok(Self {
             app,
             channel,
-            token,
+            head,
             batch,
             layout_input,
             layout_gamma,
@@ -169,7 +226,7 @@ impl Bench for LayerNormBench<f16, f16> {
             layout_gamma,
             layout_beta,
             channel,
-            token,
+            head,
             batch,
             ..
         } = self;
@@ -178,13 +235,13 @@ impl Bench for LayerNormBench<f16, f16> {
         let mut ans = vec![f16::ZERO; layout_input.co_size()];
 
         for batch in 0..*batch {
-            for token in 0..*token {
-                // compute mean and variance for this token
+            for head in 0..*head {
+                // compute mean and variance for this head
                 let mut sum: f32 = 0.0;
                 let mut sq_sum: f32 = 0.0;
 
                 for channel in 0..*channel {
-                    let idx = layout_input.value([channel, token, batch]);
+                    let idx = layout_input.value([channel, head, batch]);
                     let value = data_input[idx].to_f32();
                     sum += value;
                     sq_sum += value * value;
@@ -196,12 +253,12 @@ impl Bench for LayerNormBench<f16, f16> {
 
                 // normalize and apply affine transformation
                 for channel in 0..*channel {
-                    let idx = layout_input.value([channel, token, batch]);
+                    let idx = layout_input.value([channel, head, batch]);
                     let value = data_input[idx].to_f32();
                     let normalized = (value - mean) * inv_std;
 
-                    let g = data_gamma[layout_gamma.value([channel])].to_f32();
-                    let b_val = data_beta[layout_beta.value([channel])].to_f32();
+                    let g = data_gamma[layout_gamma.value([channel, head, 0])].to_f32();
+                    let b_val = data_beta[layout_beta.value([channel, head, 0])].to_f32();
                     let output = normalized * g + b_val;
 
                     ans[idx] = f16::from_f32(output);
@@ -236,11 +293,13 @@ where
         let Self {
             app,
             layout_input,
+            layout_gamma,
+            layout_beta,
             params,
             transfer,
             compute,
             channel,
-            token,
+            head,
             batch,
             ..
         } = self;
@@ -269,18 +328,24 @@ where
         // specialization constants (matching norm.comp)
         let specialization = [
             *channel as u32,                  // C (hidden size)
-            *token as u32,                    // T (number of tokens)
+            *head as u32,                     // H (number of heads)
             layout_input.stride_of(0) as u32, // STRIDE_X_X
             layout_input.stride_of(1) as u32, // STRIDE_X_Y
             layout_input.stride_of(2) as u32, // STRIDE_X_Z
             layout_input.stride_of(0) as u32, // STRIDE_Y_X
             layout_input.stride_of(1) as u32, // STRIDE_Y_Y
             layout_input.stride_of(2) as u32, // STRIDE_Y_Z
+            layout_gamma.stride_of(0) as u32, // STRIDE_G_X
+            layout_gamma.stride_of(1) as u32, // STRIDE_G_Y
+            0u32,                             // STRIDE_G_Z
+            layout_beta.stride_of(0) as u32,  // STRIDE_B_X
+            layout_beta.stride_of(1) as u32,  // STRIDE_B_Y
+            0u32,                             // STRIDE_B_Z
             1.0e-5f32.to_bits(),              // EPSILON (use default 1e-5)
         ];
 
         log::info!("feature: layer norm");
-        log::info!("hidden_size: {channel}, tokens: {token}, batch: {batch}");
+        log::info!("hidden_size: {channel}, heads: {head}, batch: {batch}");
         log::info!("\tspecialization: {:?}", specialization);
 
         let bindings = [vk::DescriptorSetLayoutBinding::builder()
@@ -305,9 +370,9 @@ where
             let info = vk::CommandBufferBeginInfo::builder();
             app.device.begin_command_buffer(compute[0], &info)?;
             kernel.cmd_bind(compute[0], &[]);
-            // dispatch: one workgroup per (token, batch)
+            // dispatch: one workgroup per (head, batch)
             app.device
-                .cmd_dispatch(compute[0], *token as u32, *batch as u32, 1);
+                .cmd_dispatch(compute[0], *head as u32, *batch as u32, 1);
             app.device.end_command_buffer(compute[0])?;
 
             // execute compute
@@ -352,11 +417,11 @@ mod tests {
         let app = App::new()?;
 
         // small sizes for quick testing
-        let channel = 4096;
-        let token = 64;
-        let batch = 4;
+        let c = 256;
+        let h = 16;
+        let b = 256;
 
-        let bench = LayerNormBench::<f16, f16>::new(&app, channel, token, batch)?;
+        let bench = LayerNormBench::<f16, f16>::new(&app, c, h, b)?;
         bench.benchmark_layer_norm()
     }
 
@@ -368,10 +433,10 @@ mod tests {
 
         // minimal sizes for basic correctness
         let c = 8;
-        let t = 2;
-        let batch = 1;
+        let h = 2;
+        let b = 1;
 
-        let bench = LayerNormBench::<f16, f16>::new(&app, c, t, batch)?;
+        let bench = LayerNormBench::<f16, f16>::new(&app, c, h, b)?;
         bench.benchmark_layer_norm()
     }
 }
