@@ -375,7 +375,7 @@ mod inner {
     pub struct Memory {
         pub app: super::App,
         pub handle: vk::DeviceMemory,
-        pub ext: vk::ExternalMemoryHandleTypeFlags,
+        pub external: vk::ExternalMemoryHandleTypeFlags,
     }
 
     #[derive(Debug, Default, Clone, Copy, Deref, DerefMut)]
@@ -840,8 +840,12 @@ impl App {
         let handle = self.device.allocate_memory(&info, None)?;
 
         let app = self.clone();
-        let ext = vk::ExternalMemoryHandleTypeFlags::empty();
-        Ok(Memory(Arc::new(inner::Memory { app, handle, ext })))
+        let external = vk::ExternalMemoryHandleTypeFlags::empty();
+        Ok(Memory(Arc::new(inner::Memory {
+            app,
+            handle,
+            external,
+        })))
     }
 
     unsafe fn create_external_memory_unsafe(
@@ -876,7 +880,7 @@ impl App {
         Ok(Memory(Arc::new(inner::Memory {
             app,
             handle,
-            ext: external,
+            external,
         })))
     }
 
@@ -931,13 +935,13 @@ impl App {
             Some(ext) => info.push_next(ext),
             None => info,
         };
-        let memory = self.device.allocate_memory(&info, None)?;
+        let handle = self.device.allocate_memory(&info, None)?;
 
         let app = self.clone();
         Ok(Memory(Arc::new(inner::Memory {
             app,
-            handle: memory,
-            ext: external,
+            handle,
+            external,
         })))
     }
 
@@ -1802,7 +1806,7 @@ impl Memory {
     pub fn handle_win32(&self) -> Result<vk::HANDLE, vk::ErrorCode> {
         let info = vk::MemoryGetWin32HandleInfoKHR::builder()
             .memory(self.0.handle)
-            .handle_type(self.0.ext);
+            .handle_type(self.0.external);
         unsafe { self.0.app.device.get_memory_win32_handle_khr(&info) }
     }
 }
