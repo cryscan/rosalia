@@ -121,12 +121,12 @@ where
     ///
     /// # Arguments
     ///
-    /// * `app` - The Vulkan application instance
-    /// * `channel` - The embedding dimension (C)
-    /// * `num_tokens` - The total number of tokens (T)
-    /// * `num_states` - The number of independent state sequences
-    /// * `batch` - The batch size
-    /// * `reversed` - Whether to use the REVERSED shader variant
+    /// - `app`: The Vulkan application instance
+    /// - `channel`: The embedding dimension (C)
+    /// - `num_tokens`: The total number of tokens (T)
+    /// - `num_states`: The number of independent state sequences
+    /// - `batch`: The batch size
+    /// - `reversed`: Whether to use the REVERSED shader variant
     pub fn new(
         app: &App,
         channel: usize,

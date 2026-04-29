@@ -565,7 +565,7 @@ impl Layout {
     /// shape and appropriate strides.
     ///
     /// # Arguments
-    /// * `pattern` - The shape pattern to extend to
+    /// - `pattern`: The shape pattern to extend to
     ///
     /// # Returns
     /// A new layout with the given pattern shape if compatible, or an error if the pattern

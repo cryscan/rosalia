@@ -243,9 +243,9 @@ impl Submit {
     ///
     /// # Arguments
     ///
-    /// * `device` - The Vulkan device to create the command pool for
-    /// * `family` - The queue family index for the command pool
-    /// * `queue` - The queue index within the queue family
+    /// - `device`: The Vulkan device to create the command pool for
+    /// - `family`: The queue family index for the command pool
+    /// - `queue`: The queue index within the queue family
     ///
     /// # Returns
     ///
@@ -1731,9 +1731,9 @@ impl App {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The Vulkan command buffer to record the reset command
-    /// * `first` - The first query index to reset
-    /// * `count` - The number of queries to reset
+    /// - `cmd`: The Vulkan command buffer to record the reset command
+    /// - `first`: The first query index to reset
+    /// - `count`: The number of queries to reset
     #[inline]
     pub unsafe fn cmd_reset_query_pool(&self, cmd: vk::CommandBuffer, first: u32, count: u32) {
         self.device
@@ -1762,9 +1762,9 @@ impl App {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The Vulkan command buffer to record the timestamp command
-    /// * `stage` - The pipeline stage at which to write the timestamp
-    /// * `query` - The query index to write the timestamp to
+    /// - `cmd`: The Vulkan command buffer to record the timestamp command
+    /// - `stage`: The pipeline stage at which to write the timestamp
+    /// - `query`: The query index to write the timestamp to
     #[inline]
     pub unsafe fn cmd_write_timestamp(
         &self,
@@ -1883,8 +1883,8 @@ impl<T: crate::num::Scalar> Tensor<T> {
     ///
     /// # Arguments
     ///
-    /// - `data` - A slice of data to upload. The data type must implement `bytemuck::Pod` for safe transmutation.
-    /// - `offset` - The offset in the tensor's memory to start uploading in element count.
+    /// - `data`: A slice of data to upload. The data type must implement `bytemuck::Pod` for safe transmutation.
+    /// - `offset`: The offset in the tensor's memory to start uploading in element count.
     ///
     /// # Returns
     ///
@@ -1901,7 +1901,7 @@ impl<T: crate::num::Scalar> Tensor<T> {
     ///
     /// # Arguments
     ///
-    /// - `data` - A mutable slice of data to download. The data type must implement `bytemuck::Pod` for safe transmutation.
+    /// - `data`: A mutable slice of data to download. The data type must implement `bytemuck::Pod` for safe transmutation.
     ///
     /// # Returns
     ///
@@ -1945,13 +1945,13 @@ impl<T: crate::num::Scalar> Tensor<T> {
     ///
     /// # Arguments
     ///
-    /// - `cmd` - The Vulkan command buffer to record the barrier command
-    /// - `src_queue_family_index` - Source queue family index for ownership transfer
-    /// - `dst_queue_family_index` - Destination queue family index for ownership transfer
-    /// - `src_access_mask` - Source access mask specifying previous access types
-    /// - `dst_access_mask` - Destination access mask specifying subsequent access types
-    /// - `src_stage_mask` - Source pipeline stage mask
-    /// - `dst_stage_mask` - Destination pipeline stage mask
+    /// - `cmd`: The Vulkan command buffer to record the barrier command
+    /// - `src_queue_family_index`: Source queue family index for ownership transfer
+    /// - `dst_queue_family_index`: Destination queue family index for ownership transfer
+    /// - `src_access_mask`: Source access mask specifying previous access types
+    /// - `dst_access_mask`: Destination access mask specifying subsequent access types
+    /// - `src_stage_mask`: Source pipeline stage mask
+    /// - `dst_stage_mask`: Destination pipeline stage mask
     ///
     /// # Returns
     ///
@@ -1991,8 +1991,8 @@ impl<T: crate::num::Scalar> Tensor<T> {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The Vulkan command buffer to record the copy operation
-    /// * `src` - The source tensor to copy data from
+    /// - `cmd`: The Vulkan command buffer to record the copy operation
+    /// - `src`: The source tensor to copy data from
     ///
     /// # Returns
     ///
@@ -2032,11 +2032,11 @@ impl<T: crate::num::Scalar> Tensor<T> {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The Vulkan command buffer to record the copy operation
-    /// * `src` - The source tensor to copy data from
-    /// * `dst_offset` - The offset in the destination tensor (in bytes)
-    /// * `src_offset` - The offset in the source tensor (in bytes)
-    /// * `size` - The size of data to copy (in bytes)
+    /// - `cmd`: The Vulkan command buffer to record the copy operation
+    /// - `src`: The source tensor to copy data from
+    /// - `dst_offset`: The offset in the destination tensor (in bytes)
+    /// - `src_offset`: The offset in the source tensor (in bytes)
+    /// - `size`: The size of data to copy (in bytes)
     ///
     /// # Returns
     ///
@@ -2124,7 +2124,7 @@ impl Uniform {
     ///
     /// # Arguments
     ///
-    /// * `data` - A slice of data to upload
+    /// - `data`: A slice of data to upload
     ///
     /// # Returns
     ///
@@ -2173,15 +2173,15 @@ impl Image {
     ///
     /// # Arguments
     ///
-    /// - `cmd` - The Vulkan command buffer to record the barrier command
-    /// - `old_layout` - The current image layout before the barrier
-    /// - `new_layout` - The desired image layout after the barrier
-    /// - `src_queue_family_index` - Source queue family index for ownership transfer
-    /// - `dst_queue_family_index` - Destination queue family index for ownership transfer
-    /// - `src_access_mask` - Source access mask specifying previous access types
-    /// - `dst_access_mask` - Destination access mask specifying subsequent access types
-    /// - `src_stage_mask` - Source pipeline stage mask
-    /// - `dst_stage_mask` - Destination pipeline stage mask
+    /// - `cmd`: The Vulkan command buffer to record the barrier command
+    /// - `old_layout`: The current image layout before the barrier
+    /// - `new_layout`: The desired image layout after the barrier
+    /// - `src_queue_family_index`: Source queue family index for ownership transfer
+    /// - `dst_queue_family_index`: Destination queue family index for ownership transfer
+    /// - `src_access_mask`: Source access mask specifying previous access types
+    /// - `dst_access_mask`: Destination access mask specifying subsequent access types
+    /// - `src_stage_mask`: Source pipeline stage mask
+    /// - `dst_stage_mask`: Destination pipeline stage mask
     ///
     /// # Returns
     ///
@@ -2246,8 +2246,8 @@ impl Image {
     ///
     /// # Arguments
     ///
-    /// - `cmd` - The Vulkan command buffer to record the copy operation
-    /// - `src` - The source tensor containing the data to copy
+    /// - `cmd`: The Vulkan command buffer to record the copy operation
+    /// - `src`: The source tensor containing the data to copy
     ///
     /// # Returns
     ///
@@ -2304,10 +2304,10 @@ impl Image {
     ///
     /// # Arguments
     ///
-    /// - `cmd` - The Vulkan command buffer to record the copy operation
-    /// - `src` - The source tensor containing the data to copy
-    /// - `base` - The first array layer to copy to
-    /// - `count` - The number of array layers to copy
+    /// - `cmd`: The Vulkan command buffer to record the copy operation
+    /// - `src`: The source tensor containing the data to copy
+    /// - `base`: The first array layer to copy to
+    /// - `count`: The number of array layers to copy
     ///
     /// # Returns
     ///
@@ -2461,8 +2461,8 @@ impl Kernel {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The Vulkan command buffer to bind to
-    /// * `offsets` - Dynamic offsets for descriptor set bindings
+    /// - `cmd`: The Vulkan command buffer to bind to
+    /// - `offsets`: Dynamic offsets for descriptor set bindings
     ///
     /// # Note
     ///
@@ -2635,9 +2635,9 @@ impl Binder {
     ///
     /// # Arguments
     ///
-    /// * `uniform` - The uniform buffer to bind
-    /// * `set` - The descriptor set index to bind to
-    /// * `binding` - The binding index within the descriptor set
+    /// - `uniform`: The uniform buffer to bind
+    /// - `set`: The descriptor set index to bind to
+    /// - `binding`: The binding index within the descriptor set
     ///
     /// # Returns
     ///
@@ -2653,9 +2653,9 @@ impl Binder {
     ///
     /// # Arguments
     ///
-    /// * `sampler` - The sampler to bind
-    /// * `set` - The descriptor set index to bind to
-    /// * `binding` - The binding index within the descriptor set
+    /// - `sampler`: The sampler to bind
+    /// - `set`: The descriptor set index to bind to
+    /// - `binding`: The binding index within the descriptor set
     ///
     /// # Returns
     ///
@@ -2671,9 +2671,9 @@ impl Binder {
     ///
     /// # Arguments
     ///
-    /// * `image` - The image to bind
-    /// * `set` - The descriptor set index to bind to
-    /// * `binding` - The binding index within the descriptor set
+    /// - `image`: The image to bind
+    /// - `set`: The descriptor set index to bind to
+    /// - `binding`: The binding index within the descriptor set
     ///
     /// # Returns
     ///

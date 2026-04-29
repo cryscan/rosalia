@@ -23,7 +23,7 @@ pub trait Bench {
     /// Checks if the actual results match the expected results.
     ///
     /// # Arguments
-    /// * `actual` - The actual results to check against the expected results.
+    /// - `actual`: The actual results to check against the expected results.
     ///
     /// # Returns
     /// The number of mismatches between actual and expected results.
