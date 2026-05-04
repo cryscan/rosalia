@@ -1820,6 +1820,10 @@ pub struct Tensor<T> {
     phantom: PhantomData<T>,
 }
 
+#[derive(Debug, Clone, Deref)]
+#[deref(forward)]
+pub struct TensorUntyped(Arc<inner::Tensor>);
+
 #[derive(Debug, Error)]
 pub enum TensorError {
     #[error("tensor len too small: {0} < {1}")]
@@ -1834,6 +1838,50 @@ pub enum TensorError {
     Memory(#[from] MemoryError),
     #[error(transparent)]
     Vulkan(#[from] vk::ErrorCode),
+}
+
+pub trait TensorBarrierCommand {
+    /// Inserts a pipeline barrier for the tensor buffer.
+    ///
+    /// This function records a buffer memory barrier command that synchronizes access
+    /// to the tensor's buffer memory between different queue families and pipeline stages.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because:
+    /// - It records Vulkan commands that must be properly synchronized
+    /// - The command buffer must be in the recording state
+    /// - The barrier parameters must be correctly specified to avoid data races
+    ///
+    /// Callers must ensure:
+    /// - The command buffer is valid and in the recording state
+    /// - The barrier parameters correctly reflect the actual memory access patterns
+    /// - Proper Vulkan synchronization is maintained throughout the command buffer
+    ///
+    /// # Arguments
+    ///
+    /// - `cmd`: The Vulkan command buffer to record the barrier command
+    /// - `src_queue_family_index`: Source queue family index for ownership transfer
+    /// - `dst_queue_family_index`: Destination queue family index for ownership transfer
+    /// - `src_access_mask`: Source access mask specifying previous access types
+    /// - `dst_access_mask`: Destination access mask specifying subsequent access types
+    /// - `src_stage_mask`: Source pipeline stage mask
+    /// - `dst_stage_mask`: Destination pipeline stage mask
+    ///
+    /// # Returns
+    ///
+    /// Returns `Self` to allow method chaining.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn cmd_barrier(
+        &self,
+        cmd: vk::CommandBuffer,
+        src_queue_family_index: u32,
+        dst_queue_family_index: u32,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+        dst_stage_mask: vk::PipelineStageFlags,
+    ) -> Self;
 }
 
 impl<T: crate::num::Scalar> Tensor<T> {
@@ -1924,67 +1972,6 @@ impl<T: crate::num::Scalar> Tensor<T> {
     #[inline]
     pub fn clear(&self) -> Result<Self, Box<dyn Error>> {
         unsafe { self.clear_unsafe() }
-    }
-
-    /// Inserts a pipeline barrier for the tensor buffer.
-    ///
-    /// This function records a buffer memory barrier command that synchronizes access
-    /// to the tensor's buffer memory between different queue families and pipeline stages.
-    ///
-    /// # Safety
-    ///
-    /// This function is unsafe because:
-    /// - It records Vulkan commands that must be properly synchronized
-    /// - The command buffer must be in the recording state
-    /// - The barrier parameters must be correctly specified to avoid data races
-    ///
-    /// Callers must ensure:
-    /// - The command buffer is valid and in the recording state
-    /// - The barrier parameters correctly reflect the actual memory access patterns
-    /// - Proper Vulkan synchronization is maintained throughout the command buffer
-    ///
-    /// # Arguments
-    ///
-    /// - `cmd`: The Vulkan command buffer to record the barrier command
-    /// - `src_queue_family_index`: Source queue family index for ownership transfer
-    /// - `dst_queue_family_index`: Destination queue family index for ownership transfer
-    /// - `src_access_mask`: Source access mask specifying previous access types
-    /// - `dst_access_mask`: Destination access mask specifying subsequent access types
-    /// - `src_stage_mask`: Source pipeline stage mask
-    /// - `dst_stage_mask`: Destination pipeline stage mask
-    ///
-    /// # Returns
-    ///
-    /// Returns `Self` to allow method chaining.
-    #[allow(clippy::too_many_arguments)]
-    pub unsafe fn cmd_barrier(
-        &self,
-        cmd: vk::CommandBuffer,
-        src_queue_family_index: u32,
-        dst_queue_family_index: u32,
-        src_access_mask: vk::AccessFlags,
-        dst_access_mask: vk::AccessFlags,
-        src_stage_mask: vk::PipelineStageFlags,
-        dst_stage_mask: vk::PipelineStageFlags,
-    ) -> Self {
-        let barrier = vk::BufferMemoryBarrier::builder()
-            .buffer(self.buffer)
-            .offset(0)
-            .size(self.size as u64)
-            .src_queue_family_index(src_queue_family_index)
-            .dst_queue_family_index(dst_queue_family_index)
-            .src_access_mask(src_access_mask)
-            .dst_access_mask(dst_access_mask);
-        self.app.device.cmd_pipeline_barrier(
-            cmd,
-            src_stage_mask,
-            dst_stage_mask,
-            vk::DependencyFlags::empty(),
-            &[] as &[vk::MemoryBarrier],
-            &[barrier],
-            &[] as &[vk::ImageMemoryBarrier],
-        );
-        self.clone()
     }
 
     /// Copies data from another tensor using a Vulkan command buffer.
@@ -2088,6 +2075,96 @@ where
     }
 }
 
+impl<T: crate::num::Scalar> TensorBarrierCommand for Tensor<T> {
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn cmd_barrier(
+        &self,
+        cmd: vk::CommandBuffer,
+        src_queue_family_index: u32,
+        dst_queue_family_index: u32,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+        dst_stage_mask: vk::PipelineStageFlags,
+    ) -> Self {
+        let barrier = vk::BufferMemoryBarrier::builder()
+            .buffer(self.buffer)
+            .offset(0)
+            .size(self.size as u64)
+            .src_queue_family_index(src_queue_family_index)
+            .dst_queue_family_index(dst_queue_family_index)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
+        self.app.device.cmd_pipeline_barrier(
+            cmd,
+            src_stage_mask,
+            dst_stage_mask,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[barrier],
+            &[] as &[vk::ImageMemoryBarrier],
+        );
+        self.clone()
+    }
+}
+
+impl<T: crate::num::Scalar> From<Tensor<T>> for TensorUntyped {
+    fn from(value: Tensor<T>) -> Self {
+        Self(value.inner)
+    }
+}
+
+impl<T: crate::num::Scalar> From<&Tensor<T>> for TensorUntyped {
+    fn from(value: &Tensor<T>) -> Self {
+        Self(value.inner.clone())
+    }
+}
+
+impl<T, const N: usize> TensorBarrierCommand for [T; N]
+where
+    T: Into<TensorUntyped> + Clone,
+{
+    unsafe fn cmd_barrier(
+        &self,
+        cmd: vk::CommandBuffer,
+        src_queue_family_index: u32,
+        dst_queue_family_index: u32,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+        dst_stage_mask: vk::PipelineStageFlags,
+    ) -> Self {
+        let app = match self.first().cloned() {
+            Some(tensor) => &tensor.into().app,
+            None => return self.clone(),
+        };
+        let barriers = self
+            .iter()
+            .cloned()
+            .map(|tensor| {
+                let tensor = tensor.into();
+                vk::BufferMemoryBarrier::builder()
+                    .buffer(tensor.buffer)
+                    .offset(0)
+                    .size(tensor.size as u64)
+                    .src_queue_family_index(src_queue_family_index)
+                    .dst_queue_family_index(dst_queue_family_index)
+                    .src_access_mask(src_access_mask)
+                    .dst_access_mask(dst_access_mask)
+            })
+            .collect_vec();
+        app.device.cmd_pipeline_barrier(
+            cmd,
+            src_stage_mask,
+            dst_stage_mask,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &barriers,
+            &[] as &[vk::ImageMemoryBarrier],
+        );
+        self.clone()
+    }
+}
 #[derive(Debug, Clone, Deref)]
 #[deref(forward)]
 pub struct Uniform(Arc<inner::Uniform>);
@@ -2153,7 +2230,7 @@ pub enum ImageError {
 #[deref(forward)]
 pub struct Image(Arc<inner::Image>);
 
-impl Image {
+pub trait ImageBarrierCommand {
     /// Inserts an image memory barrier for the image.
     ///
     /// This function records an image memory barrier command that synchronizes access
@@ -2187,7 +2264,7 @@ impl Image {
     ///
     /// Returns `Self` to allow method chaining.
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn cmd_barrier(
+    unsafe fn cmd_barrier(
         &self,
         cmd: vk::CommandBuffer,
         old_layout: vk::ImageLayout,
@@ -2198,34 +2275,10 @@ impl Image {
         dst_access_mask: vk::AccessFlags,
         src_stage_mask: vk::PipelineStageFlags,
         dst_stage_mask: vk::PipelineStageFlags,
-    ) -> Self {
-        let subresource = vk::ImageSubresourceRange::builder()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .base_array_layer(0)
-            .layer_count(self.layers as u32)
-            .base_mip_level(0)
-            .level_count(1);
-        let barrier = vk::ImageMemoryBarrier::builder()
-            .image(self.image)
-            .old_layout(old_layout)
-            .new_layout(new_layout)
-            .src_queue_family_index(src_queue_family_index)
-            .dst_queue_family_index(dst_queue_family_index)
-            .src_access_mask(src_access_mask)
-            .dst_access_mask(dst_access_mask)
-            .subresource_range(subresource);
-        self.app.device.cmd_pipeline_barrier(
-            cmd,
-            src_stage_mask,
-            dst_stage_mask,
-            vk::DependencyFlags::empty(),
-            &[] as &[vk::MemoryBarrier],
-            &[] as &[vk::BufferMemoryBarrier],
-            &[barrier],
-        );
-        self.clone()
-    }
+    ) -> Self;
+}
 
+impl Image {
     /// Copies data from a tensor to this image using a Vulkan command buffer.
     ///
     /// This function records a buffer-to-image copy command that transfers data
@@ -2416,6 +2469,134 @@ impl Image {
     #[inline]
     pub fn create_sampler(&self) -> Result<Sampler, ImageError> {
         unsafe { self.create_sampler_unsafe() }
+    }
+}
+
+impl ImageBarrierCommand for Image {
+    /// Inserts an image memory barrier for the image.
+    ///
+    /// This function records an image memory barrier command that synchronizes access
+    /// to the image memory between different queue families, pipeline stages, and image layouts.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because:
+    /// - It records Vulkan commands that must be properly synchronized
+    /// - The command buffer must be in the recording state
+    /// - The barrier parameters must be correctly specified to avoid data races
+    ///
+    /// Callers must ensure:
+    /// - The command buffer is valid and in the recording state
+    /// - The barrier parameters correctly reflect the actual image access patterns
+    /// - Proper Vulkan synchronization is maintained throughout the command buffer
+    ///
+    /// # Arguments
+    ///
+    /// - `cmd`: The Vulkan command buffer to record the barrier command
+    /// - `old_layout`: The current image layout before the barrier
+    /// - `new_layout`: The desired image layout after the barrier
+    /// - `src_queue_family_index`: Source queue family index for ownership transfer
+    /// - `dst_queue_family_index`: Destination queue family index for ownership transfer
+    /// - `src_access_mask`: Source access mask specifying previous access types
+    /// - `dst_access_mask`: Destination access mask specifying subsequent access types
+    /// - `src_stage_mask`: Source pipeline stage mask
+    /// - `dst_stage_mask`: Destination pipeline stage mask
+    ///
+    /// # Returns
+    ///
+    /// Returns `Self` to allow method chaining.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn cmd_barrier(
+        &self,
+        cmd: vk::CommandBuffer,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+        src_queue_family_index: u32,
+        dst_queue_family_index: u32,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+        dst_stage_mask: vk::PipelineStageFlags,
+    ) -> Self {
+        let subresource = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_array_layer(0)
+            .layer_count(self.layers as u32)
+            .base_mip_level(0)
+            .level_count(1);
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .image(self.image)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(src_queue_family_index)
+            .dst_queue_family_index(dst_queue_family_index)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask)
+            .subresource_range(subresource);
+        self.app.device.cmd_pipeline_barrier(
+            cmd,
+            src_stage_mask,
+            dst_stage_mask,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &[barrier],
+        );
+        self.clone()
+    }
+}
+
+impl<T, const N: usize> ImageBarrierCommand for [T; N]
+where
+    T: std::borrow::Borrow<Image> + Clone,
+{
+    unsafe fn cmd_barrier(
+        &self,
+        cmd: vk::CommandBuffer,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+        src_queue_family_index: u32,
+        dst_queue_family_index: u32,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+        dst_stage_mask: vk::PipelineStageFlags,
+    ) -> Self {
+        let app = match self.first() {
+            Some(image) => &image.borrow().app,
+            None => return self.clone(),
+        };
+        let barriers = self
+            .iter()
+            .map(|image| {
+                let image = image.borrow();
+                let subresource = vk::ImageSubresourceRange::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_array_layer(0)
+                    .layer_count(image.layers as u32)
+                    .base_mip_level(0)
+                    .level_count(1);
+                vk::ImageMemoryBarrier::builder()
+                    .image(image.image)
+                    .old_layout(old_layout)
+                    .new_layout(new_layout)
+                    .src_queue_family_index(src_queue_family_index)
+                    .dst_queue_family_index(dst_queue_family_index)
+                    .src_access_mask(src_access_mask)
+                    .dst_access_mask(dst_access_mask)
+                    .subresource_range(subresource)
+            })
+            .collect_vec();
+        app.device.cmd_pipeline_barrier(
+            cmd,
+            src_stage_mask,
+            dst_stage_mask,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &barriers,
+        );
+        self.clone()
     }
 }
 
